@@ -1,0 +1,499 @@
+// The application window: navigation, layout, and the properties Rust drives.
+
+import { Theme, Layout } from "theme.slint";
+import { L } from "strings.slint";
+import { FlatButton, StatusBadge } from "components.slint";
+import { AddServerDialog, AddWebsiteDialog } from "dialogs.slint";
+import {
+    AlertsScreen, AnalyticsScreen, DashboardScreen, ServerDetailScreen, ServersScreen,
+    SettingsScreen, WebsiteDetailScreen, WebsitesScreen
+} from "screens.slint";
+import {
+    AlertRow, ChartData, ContainerRow, EventRow, ProcessRow, ServerDetail, ServerRow,
+    ServiceRow, StatCard, TopPageRow, WebsiteCard, WebsiteDetail
+} from "models.slint";
+
+export { Theme, Layout, L }
+export {
+    AlertRow, ChartData, ContainerRow, EventRow, ProcessRow, ServerDetail, ServerRow,
+    ServiceRow, StatCard, TopPageRow, WebsiteCard, WebsiteDetail
+}
+
+// One navigation entry.
+component NavItem inherits Rectangle {
+    in property <string> label;
+    in property <string> glyph;
+    in property <bool> active;
+    in property <int> badge: 0;
+    in property <bool> compact: false;
+    callback clicked();
+
+    height: root.compact ? 46px : 40px;
+    border-radius: Theme.radius-sm;
+    background: root.active
+        ? Theme.accent-soft
+        : (nav-touch.has-hover ? Theme.surface-hover : transparent);
+
+    HorizontalLayout {
+        padding-left: root.compact ? 0 : Theme.space-sm;
+        padding-right: root.compact ? 0 : Theme.space-sm;
+        spacing: Theme.space-sm;
+        alignment: root.compact ? center : start;
+
+        Text {
+            text: root.glyph;
+            font-size: root.compact ? 17px : 15px;
+            color: root.active ? Theme.accent : Theme.text-muted;
+            vertical-alignment: center;
+        }
+        if !root.compact: Text {
+            text: root.label;
+            font-size: Theme.text-sm;
+            font-weight: root.active ? 700 : 500;
+            color: root.active ? Theme.accent : Theme.text-muted;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+            overflow: elide;
+        }
+        if !root.compact && root.badge > 0: Rectangle {
+            width: 20px;
+            height: 18px;
+            border-radius: 9px;
+            background: Theme.status-critical;
+            y: (parent.height - self.height) / 2;
+            Text {
+                text: root.badge;
+                font-size: 10px;
+                font-weight: 700;
+                color: #ffffff;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+    }
+
+    // On a phone the badge has no room beside the label, so it becomes a dot.
+    if root.compact && root.badge > 0: Rectangle {
+        x: parent.width / 2 + 10px;
+        y: 6px;
+        width: 7px;
+        height: 7px;
+        border-radius: 3.5px;
+        background: Theme.status-critical;
+    }
+
+    nav-touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component AppWindow inherits Window {
+    title: L.app_title;
+    background: Theme.background;
+    min-width: 360px;
+    min-height: 520px;
+    preferred-width: 1360px;
+    preferred-height: 900px;
+
+    // --- navigation ---
+    // 0 dashboard · 1 servers · 2 websites · 3 analytics · 4 alerts · 5 settings
+    in-out property <int> page: 0;
+    // Detail pages are a separate axis so the tab a user was on is preserved when they
+    // come back from a server.
+    in-out property <bool> showing-server-detail: false;
+    in-out property <bool> showing-website-detail: false;
+    in property <int> open-alert-count: 0;
+
+    // --- theme ---
+    in-out property <bool> dark-theme: true;
+
+    // --- dashboard ---
+    in property <[StatCard]> infrastructure-cards;
+    in property <[StatCard]> traffic-cards;
+    in property <ChartData> visitors-chart;
+    in property <ChartData> cpu-chart;
+    in property <[ServerRow]> problem-servers;
+    in property <[AlertRow]> recent-alerts;
+    in property <[EventRow]> recent-events;
+    in property <[WebsiteCard]> website-previews;
+    in property <bool> has-analytics;
+    in property <bool> dashboard-empty: true;
+
+    // --- servers ---
+    in property <[ServerRow]> servers;
+    in-out property <string> server-filter;
+    in property <ServerDetail> server-detail;
+    in property <[ChartData]> server-charts;
+    in property <[ProcessRow]> processes;
+    in property <[ContainerRow]> containers;
+    in property <[ServiceRow]> services;
+    in property <[EventRow]> server-events;
+    in property <[WebsiteCard]> server-websites;
+    in property <[string]> ranges;
+    in-out property <int> server-tab: 0;
+    in-out property <int> range: 2;
+
+    // --- websites ---
+    in property <[WebsiteCard]> websites;
+    in property <WebsiteDetail> website-detail;
+    in property <[ChartData]> website-charts;
+    in property <[TopPageRow]> top-pages;
+    in property <[EventRow]> website-events;
+    in-out property <int> website-tab: 0;
+    in-out property <int> website-period: 2;
+
+    // --- analytics ---
+    in property <[StatCard]> analytics-cards;
+    in property <[ChartData]> analytics-charts;
+    in property <[string]> periods;
+    in property <[string]> analytics-metrics;
+    in property <bool> analytics-configured;
+    in property <string> analytics-updated;
+    in-out property <int> analytics-period: 2;
+    in-out property <int> analytics-metric: 0;
+
+    // --- alerts ---
+    in property <[AlertRow]> open-incidents;
+    in property <[AlertRow]> alert-history;
+    in property <[AlertRow]> alert-rules;
+    in-out property <int> alert-tab: 0;
+
+    // --- settings ---
+    in property <[string]> themes;
+    in property <[string]> languages;
+    in property <[string]> refresh-policies;
+    in property <string> secret-backend;
+    in property <bool> secret-backend-is-keyring;
+    in property <string> screenshot-backend;
+    in property <bool> screenshots-available;
+    in property <string> database-path;
+    in property <string> database-size;
+    in property <string> log-path;
+    in-out property <int> theme-index: 2;
+    in-out property <int> language-index: 0;
+    in-out property <int> screenshot-policy: 1;
+    in-out property <bool> desktop-notifications: true;
+    in-out property <bool> notification-sound: false;
+    in-out property <bool> debug-mode: false;
+    in-out property <string> webhook-url;
+    in-out property <string> metrica-counter;
+    in-out property <string> metrica-token;
+
+    // --- dialogs ---
+    // Which modal is open, and what the last attempt said. The worker owns both: the
+    // dialog closes when the creation succeeds, and stays open with an error when it
+    // does not, so a rejected form never loses what was typed into it.
+    in-out property <bool> showing-add-server: false;
+    in-out property <bool> showing-add-website: false;
+    in property <string> dialog-error;
+    in property <bool> dialog-busy: false;
+
+    // --- intents ---
+    // The view never acts; it only says what the user asked for.
+    callback open-server(string);
+    callback open-website(string);
+    callback add-server();
+    callback add-website();
+    callback refresh-server();
+    callback refresh-screenshot();
+    callback forget-host-key();
+    callback delete-server();
+    callback range-changed(int);
+    callback website-period-changed(int);
+    callback analytics-period-changed(int);
+    callback analytics-metric-changed(int);
+    callback acknowledge-incident(string);
+    callback toggle-rule(string);
+    callback add-rule();
+    callback theme-changed(int);
+    callback language-changed(int);
+    callback screenshot-policy-changed(int);
+    callback save-analytics-settings();
+    callback save-notification-settings();
+
+    // The dialogs hand over their fields as strings. Parsing and validating them is the
+    // application layer's job, not the view's.
+    callback create-server(
+        string, string, string, int, int, string, string, string, string, string);
+    callback create-website(string, string, string, string, string);
+
+    // Keeps the layout rules in one place, driven by the real window width.
+    Rectangle {
+        width: 0; height: 0;
+        init => { Layout.window-width = root.width; }
+    }
+    changed width => { Layout.window-width = root.width; }
+    changed dark-theme => { Theme.dark = root.dark-theme; }
+    init => { Theme.dark = root.dark-theme; }
+
+    HorizontalLayout {
+        // --- sidebar (wide screens) ---
+        if !Layout.compact: Rectangle {
+            width: 216px;
+            background: Theme.surface;
+            border-width: 1px;
+            border-color: Theme.border;
+
+            VerticalLayout {
+                padding: Theme.space-md;
+                spacing: Theme.space-xs;
+
+                VerticalLayout {
+                    padding-bottom: Theme.space-md;
+                    spacing: 1px;
+                    Text {
+                        text: L.app_title;
+                        font-size: Theme.text-base;
+                        font-weight: 700;
+                        color: Theme.text;
+                    }
+                    Text {
+                        text: L.app_subtitle;
+                        font-size: Theme.text-xs;
+                        color: Theme.text-faint;
+                    }
+                }
+
+                NavItem {
+                    label: L.nav_dashboard; glyph: "◧"; active: root.page == 0;
+                    clicked => { root.page = 0; root.showing-server-detail = false; root.showing-website-detail = false; }
+                }
+                NavItem {
+                    label: L.nav_servers; glyph: "▤"; active: root.page == 1;
+                    clicked => { root.page = 1; root.showing-server-detail = false; }
+                }
+                NavItem {
+                    label: L.nav_websites; glyph: "◈"; active: root.page == 2;
+                    clicked => { root.page = 2; root.showing-website-detail = false; }
+                }
+                NavItem {
+                    label: L.nav_analytics; glyph: "◐"; active: root.page == 3;
+                    clicked => { root.page = 3; }
+                }
+                NavItem {
+                    label: L.nav_alerts; glyph: "△"; active: root.page == 4; badge: root.open-alert-count;
+                    clicked => { root.page = 4; }
+                }
+
+                Rectangle { vertical-stretch: 1; }
+
+                NavItem {
+                    label: L.nav_settings; glyph: "⚙"; active: root.page == 5;
+                    clicked => { root.page = 5; }
+                }
+            }
+        }
+
+        // --- content ---
+        VerticalLayout {
+            horizontal-stretch: 1;
+
+            Rectangle {
+                vertical-stretch: 1;
+                clip: true;
+
+                if root.page == 0: DashboardScreen {
+                    infrastructure-cards: root.infrastructure-cards;
+                    traffic-cards: root.traffic-cards;
+                    visitors-chart: root.visitors-chart;
+                    cpu-chart: root.cpu-chart;
+                    problem-servers: root.problem-servers;
+                    recent-alerts: root.recent-alerts;
+                    recent-events: root.recent-events;
+                    website-previews: root.website-previews;
+                    has-analytics: root.has-analytics;
+                    is-empty: root.dashboard-empty;
+                    open-server(id) => { root.open-server(id); }
+                    open-website(id) => { root.open-website(id); }
+                    add-server => { root.add-server(); }
+                }
+
+                if root.page == 1 && !root.showing-server-detail: ServersScreen {
+                    servers: root.servers;
+                    filter <=> root.server-filter;
+                    open(id) => { root.open-server(id); }
+                    add => { root.add-server(); }
+                }
+
+                if root.page == 1 && root.showing-server-detail: ServerDetailScreen {
+                    server: root.server-detail;
+                    charts: root.server-charts;
+                    processes: root.processes;
+                    containers: root.containers;
+                    services: root.services;
+                    events: root.server-events;
+                    websites: root.server-websites;
+                    ranges: root.ranges;
+                    tab <=> root.server-tab;
+                    range <=> root.range;
+                    back => { root.showing-server-detail = false; }
+                    range-changed(index) => { root.range-changed(index); }
+                    refresh => { root.refresh-server(); }
+                    open-website(id) => { root.open-website(id); }
+                    forget-host-key => { root.forget-host-key(); }
+                    delete-server => {
+                        root.showing-server-detail = false;
+                        root.delete-server();
+                    }
+                }
+
+                if root.page == 2 && !root.showing-website-detail: WebsitesScreen {
+                    websites: root.websites;
+                    open(id) => { root.open-website(id); }
+                    add => { root.add-website(); }
+                }
+
+                if root.page == 2 && root.showing-website-detail: WebsiteDetailScreen {
+                    website: root.website-detail;
+                    charts: root.website-charts;
+                    top-pages: root.top-pages;
+                    events: root.website-events;
+                    periods: root.periods;
+                    tab <=> root.website-tab;
+                    period <=> root.website-period;
+                    back => { root.showing-website-detail = false; }
+                    period-changed(index) => { root.website-period-changed(index); }
+                    refresh-screenshot => { root.refresh-screenshot(); }
+                }
+
+                if root.page == 3: AnalyticsScreen {
+                    cards: root.analytics-cards;
+                    charts: root.analytics-charts;
+                    websites: root.websites;
+                    periods: root.periods;
+                    metrics: root.analytics-metrics;
+                    configured: root.analytics-configured;
+                    updated: root.analytics-updated;
+                    period <=> root.analytics-period;
+                    metric <=> root.analytics-metric;
+                    period-changed(index) => { root.analytics-period-changed(index); }
+                    metric-changed(index) => { root.analytics-metric-changed(index); }
+                    open-website(id) => { root.open-website(id); }
+                    configure => { root.page = 5; }
+                }
+
+                if root.page == 4: AlertsScreen {
+                    open-incidents: root.open-incidents;
+                    history: root.alert-history;
+                    rules: root.alert-rules;
+                    tab <=> root.alert-tab;
+                    acknowledge(id) => { root.acknowledge-incident(id); }
+                    toggle-rule(id) => { root.toggle-rule(id); }
+                    add-rule => { root.add-rule(); }
+                }
+
+                if root.page == 5: SettingsScreen {
+                    themes: root.themes;
+                    languages: root.languages;
+                    refresh-policies: root.refresh-policies;
+                    secret-backend: root.secret-backend;
+                    secret-backend-is-keyring: root.secret-backend-is-keyring;
+                    screenshot-backend: root.screenshot-backend;
+                    screenshots-available: root.screenshots-available;
+                    database-path: root.database-path;
+                    database-size: root.database-size;
+                    log-path: root.log-path;
+                    theme-index <=> root.theme-index;
+                    language-index <=> root.language-index;
+                    screenshot-policy <=> root.screenshot-policy;
+                    desktop-notifications <=> root.desktop-notifications;
+                    notification-sound <=> root.notification-sound;
+                    debug-mode <=> root.debug-mode;
+                    webhook-url <=> root.webhook-url;
+                    metrica-counter <=> root.metrica-counter;
+                    metrica-token <=> root.metrica-token;
+                    theme-changed(index) => { root.theme-changed(index); }
+                    language-changed(index) => { root.language-changed(index); }
+                    screenshot-policy-changed(index) => { root.screenshot-policy-changed(index); }
+                    save-analytics => { root.save-analytics-settings(); }
+                    save-notifications => { root.save-notification-settings(); }
+                }
+            }
+
+            // --- bottom navigation (narrow screens) ---
+            if Layout.compact: Rectangle {
+                height: 62px;
+                background: Theme.surface;
+                border-width: 1px;
+                border-color: Theme.border;
+
+                HorizontalLayout {
+                    padding: Theme.space-xs;
+                    spacing: 2px;
+
+                    NavItem {
+                        label: L.nav_home; glyph: "◧"; compact: true; active: root.page == 0;
+                        horizontal-stretch: 1;
+                        clicked => { root.page = 0; root.showing-server-detail = false; root.showing-website-detail = false; }
+                    }
+                    NavItem {
+                        label: L.nav_servers; glyph: "▤"; compact: true; active: root.page == 1;
+                        horizontal-stretch: 1;
+                        clicked => { root.page = 1; root.showing-server-detail = false; }
+                    }
+                    NavItem {
+                        label: L.nav_sites_short; glyph: "◈"; compact: true; active: root.page == 2;
+                        horizontal-stretch: 1;
+                        clicked => { root.page = 2; root.showing-website-detail = false; }
+                    }
+                    NavItem {
+                        label: L.nav_analytics; glyph: "◐"; compact: true; active: root.page == 3;
+                        horizontal-stretch: 1;
+                        clicked => { root.page = 3; }
+                    }
+                    NavItem {
+                        label: L.nav_alerts; glyph: "△"; compact: true; active: root.page == 4;
+                        badge: root.open-alert-count;
+                        horizontal-stretch: 1;
+                        clicked => { root.page = 4; }
+                    }
+                    NavItem {
+                        label: L.nav_more; glyph: "⚙"; compact: true; active: root.page == 5;
+                        horizontal-stretch: 1;
+                        clicked => { root.page = 5; }
+                    }
+                }
+            }
+        }
+    }
+
+    // Last in the window, so a modal covers the navigation as well as the content —
+    // a dialog you can click behind is not a dialog.
+    if root.showing-add-server: add-server-dialog := AddServerDialog {
+        error: root.dialog-error;
+        busy: root.dialog-busy;
+
+        confirmed => {
+            root.create-server(
+                self.server-name,
+                self.host,
+                self.port,
+                self.mode,
+                self.auth-kind,
+                self.username,
+                self.secret,
+                self.passphrase,
+                self.agent-token,
+                self.interval,
+            );
+        }
+        cancelled => { root.showing-add-server = false; }
+    }
+
+    if root.showing-add-website: add-website-dialog := AddWebsiteDialog {
+        error: root.dialog-error;
+        busy: root.dialog-busy;
+
+        confirmed => {
+            root.create-website(
+                self.website-name,
+                self.url,
+                self.interval,
+                self.expected-status,
+                self.expected-text,
+            );
+        }
+        cancelled => { root.showing-add-website = false; }
+    }
+}

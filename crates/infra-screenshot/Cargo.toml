@@ -1,0 +1,36 @@
+[package]
+name = "vds-infra-screenshot"
+description = "Website screenshot capture via a local headless browser, plus filesystem storage."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+
+[features]
+# Development-only providers. Never enabled in a release profile; see
+# `docs/adr/004-screenshot-architecture.md` for why generated images are fenced off this
+# hard.
+demo-providers = []
+
+[dependencies]
+vds-domain.workspace = true
+vds-application.workspace = true
+
+async-trait.workspace = true
+image.workspace = true
+tempfile.workspace = true
+tokio = { workspace = true }
+tracing.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread"] }

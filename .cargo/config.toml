@@ -1,0 +1,24 @@
+# Cross-compilation linkers.
+#
+# Desktop Linux targets are normally built through `cross` (see docs/CROSS_COMPILATION.md),
+# which supplies these automatically inside its Docker images. The entries below make a
+# host-toolchain build work when the matching GCC cross-compiler is installed locally.
+
+[target.aarch64-unknown-linux-gnu]
+linker = "aarch64-linux-gnu-gcc"
+
+[target.armv7-unknown-linux-gnueabihf]
+linker = "arm-linux-gnueabihf-gcc"
+
+[target.i686-unknown-linux-gnu]
+linker = "gcc"
+rustflags = ["-C", "link-arg=-m32"]
+
+[target.aarch64-unknown-linux-musl]
+linker = "aarch64-linux-musl-gcc"
+
+[target.armv7-unknown-linux-musleabihf]
+linker = "arm-linux-musleabihf-gcc"
+
+[alias]
+lint = "clippy --workspace --all-targets --all-features -- -D warnings"

@@ -1,0 +1,377 @@
+// Reusable pieces. Nothing here knows what a server or a website is.
+
+import { Theme, Layout } from "theme.slint";
+import { L } from "strings.slint";
+import { StatCard, ChartData } from "models.slint";
+
+// A coloured dot plus a label.
+export component StatusBadge inherits HorizontalLayout {
+    in property <string> status;
+    in property <string> label;
+    in property <bool> compact: false;
+
+    spacing: Theme.space-xs + 2px;
+    alignment: start;
+
+    Rectangle {
+        width: 9px;
+        height: 9px;
+        border-radius: 4.5px;
+        background: Theme.status-color(root.status);
+        y: (parent.height - self.height) / 2;
+    }
+
+    if !root.compact: Text {
+        text: root.label;
+        font-size: Theme.text-sm;
+        color: Theme.text-muted;
+        vertical-alignment: center;
+    }
+}
+
+// The standard container. Everything sits in one of these.
+export component Card inherits Rectangle {
+    in property <string> title;
+    in property <string> subtitle;
+
+    background: Theme.surface;
+    border-radius: Theme.radius;
+    border-width: 1px;
+    border-color: Theme.border;
+
+    VerticalLayout {
+        padding: Theme.space-md;
+        spacing: Theme.space-sm;
+
+        if root.title != "": VerticalLayout {
+            spacing: 2px;
+            Text {
+                text: root.title;
+                font-size: Theme.text-sm;
+                font-weight: 600;
+                color: Theme.text-muted;
+            }
+            if root.subtitle != "": Text {
+                text: root.subtitle;
+                font-size: Theme.text-xs;
+                color: Theme.text-faint;
+            }
+        }
+
+        @children
+    }
+}
+
+// One headline number.
+export component StatTile inherits Rectangle {
+    in property <StatCard> data;
+
+    background: Theme.surface;
+    border-radius: Theme.radius;
+    border-width: 1px;
+    border-color: Theme.border;
+    min-height: 92px;
+
+    VerticalLayout {
+        padding: Theme.space-md;
+        spacing: Theme.space-xs;
+        alignment: center;
+
+        Text {
+            text: root.data.label;
+            font-size: Theme.text-xs;
+            color: Theme.text-muted;
+            // Uppercase in the label, not in the data: a hostname must never be shouted.
+            letter-spacing: 0.6px;
+        }
+        Text {
+            text: root.data.value;
+            font-size: Theme.text-xl;
+            font-weight: 700;
+            // Untinted unless the value means something is wrong; colouring every number
+            // would make colour meaningless.
+            color: root.data.status == "" ? Theme.text : Theme.status-color(root.data.status);
+            overflow: elide;
+        }
+        if root.data.detail != "": Text {
+            text: root.data.detail;
+            font-size: Theme.text-xs;
+            color: Theme.text-faint;
+            overflow: elide;
+        }
+    }
+}
+
+// A labelled progress bar, used for CPU/RAM/disk in a row.
+export component MeterBar inherits VerticalLayout {
+    in property <string> label;
+    // Negative means the value was not measured, drawn as an empty track, not a zero bar.
+    in property <float> fraction: -1;
+    in property <string> value;
+
+    spacing: 3px;
+
+    HorizontalLayout {
+        Text {
+            text: root.label;
+            font-size: Theme.text-xs;
+            color: Theme.text-faint;
+        }
+        Rectangle { }
+        Text {
+            text: root.value;
+            font-size: Theme.text-xs;
+            color: Theme.text-muted;
+        }
+    }
+
+    Rectangle {
+        height: 5px;
+        border-radius: 2.5px;
+        background: Theme.chart-grid;
+
+        if root.fraction >= 0: Rectangle {
+            x: 0;
+            width: parent.width * min(1.0, max(0.0, root.fraction));
+            height: parent.height;
+            border-radius: parent.border-radius;
+            // Colour by severity rather than by a gradient: a bar that is subtly redder
+            // at 71% than at 69% tells nobody anything.
+            background: root.fraction >= 0.9
+                ? Theme.status-critical
+                : (root.fraction >= 0.8 ? Theme.status-warning : Theme.status-healthy);
+        }
+    }
+}
+
+// A line chart. The geometry is computed in Rust; this only draws.
+export component Chart inherits Rectangle {
+    in property <ChartData> data;
+    in property <length> chart-height: 180px;
+
+    // The path coordinates were computed against this box, so it must match what
+    // `chart::build` was given.
+    property <length> plot-width: self.width - 56px;
+    property <length> plot-height: root.chart-height - 28px;
+
+    background: Theme.surface;
+    border-radius: Theme.radius;
+    border-width: 1px;
+    border-color: Theme.border;
+    height: root.chart-height + 44px;
+
+    VerticalLayout {
+        padding: Theme.space-md;
+        spacing: Theme.space-sm;
+
+        Text {
+            text: root.data.title;
+            font-size: Theme.text-sm;
+            font-weight: 600;
+            color: Theme.text-muted;
+        }
+
+        if !root.data.has-data: Rectangle {
+            height: root.plot-height;
+            Text {
+                text: root.data.empty-message;
+                font-size: Theme.text-sm;
+                color: Theme.text-faint;
+            }
+        }
+
+        if root.data.has-data: HorizontalLayout {
+            spacing: Theme.space-sm;
+
+            // Y axis.
+            VerticalLayout {
+                width: 48px;
+                for label in root.data.y-labels: Text {
+                    text: label;
+                    font-size: Theme.text-xs;
+                    color: Theme.text-faint;
+                    horizontal-alignment: right;
+                    vertical-alignment: top;
+                }
+            }
+
+            VerticalLayout {
+                spacing: 4px;
+
+                Rectangle {
+                    height: root.plot-height;
+                    clip: true;
+
+                    // Gridlines, one per y-axis label.
+                    for label[index] in root.data.y-labels: Rectangle {
+                        y: root.plot-height * index / max(1, root.data.y-labels.length - 1);
+                        height: 1px;
+                        background: Theme.chart-grid;
+                    }
+
+                    // The min/max band sits behind the line, so a spike is visible as
+                    // spread rather than being averaged into invisibility.
+                    if root.data.band != "": Path {
+                        width: root.plot-width;
+                        height: root.plot-height;
+                        viewbox-width: root.plot-width / 1px;
+                        viewbox-height: root.plot-height / 1px;
+                        commands: root.data.band;
+                        fill: Theme.chart-band;
+                    }
+
+                    Path {
+                        width: root.plot-width;
+                        height: root.plot-height;
+                        viewbox-width: root.plot-width / 1px;
+                        viewbox-height: root.plot-height / 1px;
+                        commands: root.data.line;
+                        stroke: Theme.chart-line;
+                        stroke-width: 2px;
+                    }
+                }
+
+                HorizontalLayout {
+                    for label in root.data.x-labels: Text {
+                        text: label;
+                        font-size: Theme.text-xs;
+                        color: Theme.text-faint;
+                        horizontal-alignment: center;
+                    }
+                }
+            }
+        }
+    }
+}
+
+// A flat button that does not look like a 1998 dialog.
+export component FlatButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> primary: false;
+    in property <bool> enabled: true;
+    callback clicked();
+
+    height: 34px;
+    border-radius: Theme.radius-sm;
+    background: root.primary
+        ? (touch.has-hover ? Theme.accent.darker(0.1) : Theme.accent)
+        : (touch.has-hover ? Theme.surface-hover : Theme.surface-raised);
+    border-width: root.primary ? 0 : 1px;
+    border-color: Theme.border;
+    opacity: root.enabled ? 1.0 : 0.45;
+
+    HorizontalLayout {
+        padding-left: Theme.space-md;
+        padding-right: Theme.space-md;
+        Text {
+            text: root.text;
+            font-size: Theme.text-sm;
+            font-weight: 600;
+            color: root.primary ? #ffffff : Theme.text;
+            vertical-alignment: center;
+            horizontal-alignment: center;
+        }
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+// A row of mutually exclusive options — time ranges, analytics periods.
+export component SegmentedControl inherits HorizontalLayout {
+    in property <[string]> options;
+    in-out property <int> selected: 0;
+    callback changed(int);
+
+    spacing: 2px;
+
+    for option[index] in root.options: Rectangle {
+        border-radius: Theme.radius-sm;
+        background: index == root.selected
+            ? Theme.accent-soft
+            : (segment.has-hover ? Theme.surface-hover : transparent);
+
+        HorizontalLayout {
+            padding: Theme.space-sm;
+            padding-top: 6px;
+            padding-bottom: 6px;
+            Text {
+                text: option;
+                font-size: Theme.text-xs;
+                font-weight: index == root.selected ? 700 : 500;
+                color: index == root.selected ? Theme.accent : Theme.text-muted;
+                vertical-alignment: center;
+            }
+        }
+
+        segment := TouchArea {
+            mouse-cursor: pointer;
+            clicked => {
+                root.selected = index;
+                root.changed(index);
+            }
+        }
+    }
+}
+
+// Shown wherever a list is legitimately empty.
+//
+// A distinct component because "nothing here yet" and "we could not load this" must not
+// look the same, and an empty table with no explanation looks like a bug.
+export component EmptyState inherits VerticalLayout {
+    in property <string> title;
+    in property <string> detail;
+    in property <string> action-text;
+    callback action();
+
+    alignment: center;
+    spacing: Theme.space-sm;
+    padding: Theme.space-xl;
+
+    Text {
+        text: root.title;
+        font-size: Theme.text-base;
+        font-weight: 600;
+        color: Theme.text-muted;
+        horizontal-alignment: center;
+    }
+    Text {
+        text: root.detail;
+        font-size: Theme.text-sm;
+        color: Theme.text-faint;
+        horizontal-alignment: center;
+        wrap: word-wrap;
+    }
+    if root.action-text != "": HorizontalLayout {
+        alignment: center;
+        FlatButton {
+            text: root.action-text;
+            primary: true;
+            clicked => { root.action(); }
+        }
+    }
+}
+
+// A key/value line, used throughout the detail pages.
+export component DetailRow inherits HorizontalLayout {
+    in property <string> label;
+    in property <string> value;
+
+    spacing: Theme.space-md;
+
+    Text {
+        text: root.label;
+        font-size: Theme.text-sm;
+        color: Theme.text-faint;
+        width: 132px;
+    }
+    Text {
+        text: root.value;
+        font-size: Theme.text-sm;
+        color: Theme.text;
+        overflow: elide;
+    }
+}

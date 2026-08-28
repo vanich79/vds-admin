@@ -1,0 +1,83 @@
+# vds-agent configuration.
+#
+# Every setting below is shown with its default. A file containing nothing but a token
+# is a valid, working configuration.
+#
+# After editing, check it before restarting:
+#
+#     vds-agent --check --config /etc/vds-agent/agent.toml
+#
+# See docs/AGENT.md for the full reference.
+
+# --- Authentication ----------------------------------------------------------------
+#
+# The token is the only thing between the network and a full reading of this host.
+# Generate one with:
+#
+#     head -c 32 /dev/urandom | base64
+#
+# Prefer `token_file` to an inline `token`: it lets this file stay readable while the
+# secret itself is 0600. The installer writes /etc/vds-agent/token for exactly this.
+token_file = "/etc/vds-agent/token"
+
+# token = "..."   # inline alternative; ignored when token_file is set
+
+# --- Network -----------------------------------------------------------------------
+
+# Bind address. "0.0.0.0" listens on every interface.
+#
+# If the app reaches this host through a VPN or an SSH tunnel, set this to the tunnel's
+# address (or 127.0.0.1) so the agent is not exposed to the wider network at all. That
+# is strictly better than a firewall rule, because it cannot be forgotten.
+bind = "0.0.0.0"
+
+port = 9443
+
+# --- TLS ---------------------------------------------------------------------------
+#
+# Leave both unset and the agent generates a self-signed certificate on first start,
+# under state_dir. The app pins its fingerprint on first connection, the way an SSH
+# client pins a host key.
+#
+# Print the fingerprint to compare against what the app shows:
+#
+#     vds-agent --fingerprint --config /etc/vds-agent/agent.toml
+#
+# Set both together to use a certificate you already have.
+
+# tls_certificate = "/etc/ssl/certs/agent.crt"
+# tls_private_key = "/etc/ssl/private/agent.key"
+
+state_dir = "/var/lib/vds-agent"
+
+# --- Collection --------------------------------------------------------------------
+
+# Seconds a collected report is served before this host is read again.
+#
+# Several app instances may watch one server, and a dashboard refresh and a detail page
+# can arrive together. Without this the agent would read /proc once per client per poll.
+# Raise it on a busy host; the app always shows how old a reading is.
+cache_ttl_secs = 5
+
+# Per-command timeout for the collector layer. Applies to reading a /proc file and to
+# running `docker` or `systemctl`.
+collect_timeout_secs = 10
+
+# Individual collectors. Turning one off removes it from the plan entirely — the work is
+# not done and discarded.
+#
+# On a host with thousands of processes, `collect_processes = false` is the single
+# biggest saving available.
+collect_docker = true
+collect_services = true
+collect_processes = true
+
+# --- Logging -----------------------------------------------------------------------
+#
+# trace | debug | info | warn | error
+#
+# The VDS_AGENT_LOG environment variable overrides this and accepts the full
+# `tracing` filter syntax, e.g. VDS_AGENT_LOG="vds_agent=debug,info".
+#
+# No level ever logs the token, a private key or a certificate's contents.
+log_level = "info"

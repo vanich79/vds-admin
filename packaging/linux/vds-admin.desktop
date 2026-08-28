@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=VDS Admin
+GenericName=Server Monitor
+Comment=Monitor servers, websites and traffic from one window
+Exec=vds-admin
+Icon=vds-admin
+Terminal=false
+Categories=System;Monitor;Network;
+Keywords=server;monitoring;ssh;docker;uptime;ssl;analytics;
+StartupNotify=true
+StartupWMClass=vds-admin

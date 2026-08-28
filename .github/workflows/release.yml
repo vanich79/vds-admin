@@ -1,0 +1,243 @@
+name: Release
+
+# Triggered by a version tag. Everything it publishes is built here, in this run, from
+# the tagged commit — no artefact is ever uploaded from a developer's machine.
+#
+#   git tag -a v0.2.0 -m "..." && git push origin v0.2.0
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to build (must already exist)
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # A tag must not be able to ship code that would fail CI. The whole suite runs first,
+  # and everything below depends on it.
+  verify:
+    name: Verify
+    uses: ./.github/workflows/ci.yml
+
+  # --- desktop --------------------------------------------------------------------------
+  desktop:
+    name: Desktop (${{ matrix.os }})
+    needs: [verify]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            script: build-linux.sh --formats tar,deb
+            artefacts: dist/linux
+          - os: windows-latest
+            script: build-windows.sh --installer
+            artefacts: dist/windows
+          - os: macos-latest
+            script: build-macos.sh
+            artefacts: dist/macos
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install the Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            libfontconfig1-dev libxkbcommon-dev
+          cargo install cargo-deb --locked
+
+      - name: Install NSIS
+        if: runner.os == 'Windows'
+        run: choco install nsis --no-progress -y
+        shell: pwsh
+
+      - name: Build
+        shell: bash
+        env:
+          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+          MACOS_NOTARY_PROFILE: ${{ secrets.MACOS_NOTARY_PROFILE }}
+        run: bash scripts/${{ matrix.script }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.os }}
+          path: ${{ matrix.artefacts }}/*
+          if-no-files-found: error
+
+  # --- agent, one job per architecture ---------------------------------------------------
+  agent:
+    name: Agent (${{ matrix.short }})
+    needs: [verify]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { short: x86_64,  target: x86_64-unknown-linux-musl }
+          - { short: aarch64, target: aarch64-unknown-linux-musl }
+          - { short: armv7,   target: armv7-unknown-linux-musleabihf }
+          - { short: armv6,   target: arm-unknown-linux-musleabihf }
+          - { short: i686,    target: i686-unknown-linux-musl }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install cross
+        run: cargo install cross --git https://github.com/cross-rs/cross --locked
+
+      - name: Build and package
+        run: bash scripts/build-agent.sh ${{ matrix.short }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: agent-${{ matrix.short }}
+          path: dist/agent/vds-agent-${{ matrix.target }}.tar.gz
+          if-no-files-found: error
+
+  # --- Android ---------------------------------------------------------------------------
+  android:
+    name: Android APK
+    needs: [verify]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android, armv7-linux-androideabi, x86_64-linux-android, i686-linux-android
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager --install "ndk;26.3.11579264"
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo install cargo-apk --locked
+
+      - name: Restore the signing keystore
+        # Without a keystore the build script produces a debug APK and says so, rather
+        # than an unsigned release APK that nobody can install.
+        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/release.keystore"
+          echo "ANDROID_KEYSTORE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
+
+      - name: Build
+        env:
+          ANDROID_NDK_ROOT: ${{ env.ANDROID_HOME }}/ndk/26.3.11579264
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: bash scripts/build-android.sh --release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: dist/android/*.apk
+          if-no-files-found: error
+
+  # --- collect, checksum and publish --------------------------------------------------------
+  publish:
+    name: Publish
+    needs: [desktop, agent, android]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: staging
+
+      - name: Collect the artefacts
+        run: |
+          mkdir -p release
+          # Each job's artefacts arrive in their own directory; flatten them, and drop
+          # the per-job SHA256SUMS files — one authoritative list is generated below.
+          find staging -type f ! -name 'SHA256SUMS' -exec cp {} release/ \;
+          ls -lh release
+
+      - name: Publish the installer alongside the tarballs
+        # So that `curl .../install.sh | sudo sh` resolves without unpacking anything.
+        run: cp packaging/agent/install.sh release/install.sh
+
+      - name: Generate SHA256SUMS
+        # One file covering every artefact in the release. The agent installer verifies
+        # against exactly this, which is why it is generated here rather than merged
+        # from the per-job lists.
+        run: |
+          cd release
+          sha256sum ./* > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Sign SHA256SUMS
+        # Signed with a key that never touches a build machine, so a compromised runner
+        # cannot produce a matching pair of artefacts and signature. Optional: without
+        # the secret the release still carries checksums, and docs/AGENT.md describes
+        # what that does and does not protect against.
+        if: ${{ secrets.GPG_SIGNING_KEY != '' }}
+        env:
+          GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          echo "$GPG_SIGNING_KEY" | gpg --batch --import
+          gpg --batch --yes --pinentry-mode loopback --passphrase "$GPG_PASSPHRASE" \
+            --armor --detach-sign --output release/SHA256SUMS.asc release/SHA256SUMS
+          gpg --verify release/SHA256SUMS.asc release/SHA256SUMS
+
+      - name: Create the release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          files: release/*
+          draft: true
+          generate_release_notes: true
+          body: |
+            ## Verifying a download
+
+            Every artefact is listed in `SHA256SUMS`:
+
+            ```sh
+            sha256sum --check SHA256SUMS --ignore-missing
+            ```
+
+            When `SHA256SUMS.asc` is present, check the signature first — that is what
+            protects you if this release host is ever compromised:
+
+            ```sh
+            gpg --verify SHA256SUMS.asc SHA256SUMS
+            ```
+
+            ## Installing the agent
+
+            ```sh
+            curl -fsSL https://github.com/${{ github.repository }}/releases/latest/download/install.sh | sudo sh
+            ```
+
+            See [docs/AGENT.md](docs/AGENT.md) for the verified offline installation
+            path, which is the right one for a production fleet.

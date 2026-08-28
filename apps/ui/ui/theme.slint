@@ -1,0 +1,80 @@
+// The design system.
+//
+// One place defines every colour, space and type size. Screens never write a literal
+// colour: that is what keeps light and dark mode a single switch rather than an audit.
+
+export global Theme {
+    // Set by the application from settings — light, dark, or whatever the system says.
+    in-out property <bool> dark: true;
+
+    // --- surfaces ---
+    out property <color> background: dark ? #0b1220 : #f6f8fb;
+    out property <color> surface: dark ? #131c2e : #ffffff;
+    out property <color> surface-raised: dark ? #1a2436 : #ffffff;
+    out property <color> surface-hover: dark ? #1f2b40 : #eef2f7;
+    out property <color> border: dark ? #24314a : #dfe5ee;
+
+    // --- text ---
+    out property <color> text: dark ? #e8edf7 : #16202f;
+    out property <color> text-muted: dark ? #8fa0bd : #5b6b82;
+    out property <color> text-faint: dark ? #5f708c : #93a1b5;
+
+    // --- status ---
+    // These are the only colours that carry meaning, so they are deliberately far apart
+    // in hue *and* in lightness: a red/green pair alone is unreadable for the ~8% of men
+    // with a colour vision deficiency.
+    out property <color> status-healthy: dark ? #34d399 : #059669;
+    out property <color> status-warning: dark ? #fbbf24 : #d97706;
+    out property <color> status-critical: dark ? #f87171 : #dc2626;
+    out property <color> status-offline: dark ? #a78bfa : #7c3aed;
+    out property <color> status-unknown: dark ? #64748b : #94a3b8;
+
+    out property <color> accent: dark ? #60a5fa : #2563eb;
+    out property <color> accent-soft: dark ? #1d3a63 : #dbeafe;
+
+    // --- chart ---
+    out property <color> chart-line: accent;
+    out property <color> chart-band: dark ? #1d3a6380 : #dbeafe99;
+    out property <color> chart-grid: dark ? #1e293b : #e8edf4;
+
+    // --- spacing ---
+    out property <length> space-xs: 4px;
+    out property <length> space-sm: 8px;
+    out property <length> space-md: 16px;
+    out property <length> space-lg: 24px;
+    out property <length> space-xl: 32px;
+
+    out property <length> radius: 10px;
+    out property <length> radius-sm: 6px;
+
+    // --- type ---
+    out property <length> text-xs: 11px;
+    out property <length> text-sm: 13px;
+    out property <length> text-base: 15px;
+    out property <length> text-lg: 19px;
+    out property <length> text-xl: 26px;
+    out property <length> text-display: 34px;
+
+    // Resolves a status name to its colour. Screens pass the string straight through
+    // from the domain, so there is no second enum to keep in sync.
+    pure public function status-color(status: string) -> color {
+        if (status == "healthy") { return status-healthy; }
+        if (status == "warning") { return status-warning; }
+        if (status == "critical") { return status-critical; }
+        if (status == "offline") { return status-offline; }
+        return status-unknown;
+    }
+}
+
+// Layout thresholds.
+//
+// The single place that decides what "narrow" means, so the sidebar, the grid and the
+// card sizes all change at the same moment.
+export global Layout {
+    in-out property <length> window-width: 1280px;
+
+    // Below this, the sidebar becomes bottom navigation and grids collapse to one
+    // column. Chosen to be comfortably wider than a phone in landscape.
+    out property <bool> compact: window-width < 820px;
+    out property <int> grid-columns: window-width < 820px ? 1 : (window-width < 1200px ? 2 : 4);
+}

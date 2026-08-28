@@ -1,0 +1,82 @@
+[Unit]
+Description=VDS Admin monitoring agent
+Documentation=https://github.com/vds-admin/vds-admin/blob/main/docs/AGENT.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=vds-agent
+Group=vds-agent
+
+# A bad edit fails here, before the running agent is replaced. Without this a typo in
+# the configuration turns a restart into an outage of the monitoring itself.
+ExecStartPre=/usr/local/bin/vds-agent --check --config /etc/vds-agent/agent.toml
+ExecStart=/usr/local/bin/vds-agent --config /etc/vds-agent/agent.toml
+
+# SIGTERM is what the agent handles; the default is right, and stated so nobody
+# "helpfully" changes it to SIGKILL later.
+KillSignal=SIGTERM
+TimeoutStopSec=15
+
+Restart=on-failure
+RestartSec=5
+# Five failures in a minute means the problem is not transient. Without this a
+# crash-looping agent hammers the journal and the CPU it is meant to be measuring.
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+# --- Hardening -------------------------------------------------------------------
+#
+# The agent reads /proc, writes only its own certificate, and talks to a socket. Almost
+# everything else can be taken away, and is. Run `systemd-analyze security vds-agent`
+# after any change here.
+
+# The certificate and key live here and nowhere else.
+StateDirectory=vds-agent
+StateDirectoryMode=0750
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=default
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RemoveIPC=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+# ProtectProc=default rather than `invisible`: the agent's whole job is to report the
+# process table, and hiding other users' processes from it would silently return a
+# report showing only its own.
+
+# --- Resource limits -------------------------------------------------------------
+#
+# A monitoring agent that destabilises the machine it watches is worse than no agent.
+# These are ceilings, not targets: normal use is a few megabytes and no measurable CPU.
+MemoryMax=128M
+CPUQuota=10%
+TasksMax=64
+
+# The journal collects stderr; the agent writes no log files of its own.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=vds-agent
+
+[Install]
+WantedBy=multi-user.target

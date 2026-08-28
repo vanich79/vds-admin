@@ -1,0 +1,3 @@
+# Keep the fleet-scale code honest: no silent truncation, no hidden panics.
+avoid-breaking-exported-api = false
+too-many-arguments-threshold = 8

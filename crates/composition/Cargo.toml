@@ -1,0 +1,51 @@
+[package]
+name = "vds-composition"
+description = "The composition root: the one place that knows which implementation satisfies each port."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+
+[features]
+# Development-only providers, forwarded to the crates that implement them. Off by
+# default and never enabled for a release build; see `docs/adr/004-screenshot-architecture.md`.
+demo-providers = [
+    "vds-infra-analytics/demo-providers",
+    "vds-infra-screenshot/demo-providers",
+]
+
+[dependencies]
+vds-domain.workspace = true
+vds-application.workspace = true
+vds-infra-analytics.workspace = true
+vds-infra-collectors.workspace = true
+vds-infra-db.workspace = true
+vds-infra-notify.workspace = true
+vds-infra-screenshot.workspace = true
+vds-infra-secrets.workspace = true
+vds-infra-ssh.workspace = true
+vds-infra-web.workspace = true
+
+async-trait.workspace = true
+chrono.workspace = true
+dirs.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true }
+tracing.workspace = true
+tracing-appender.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread"] }
+vds-application = { workspace = true, features = ["testing"] }

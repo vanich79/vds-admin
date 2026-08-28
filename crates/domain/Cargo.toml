@@ -1,0 +1,31 @@
+[package]
+name = "vds-domain"
+description = "Pure domain model: entities, value objects, domain events and ports. No I/O."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+indexing_slicing = "warn"
+
+[dependencies]
+async-trait.workspace = true
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+url.workspace = true
+uuid.workspace = true
+zeroize.workspace = true
+
+# NOTE: this crate must never gain a dependency on rusqlite, russh, reqwest,
+# slint, tokio or any other I/O crate. `scripts/check-layering.sh` enforces it.

@@ -1,0 +1,158 @@
+// The shapes the Rust side hands to the view.
+//
+// Every field is already formatted: the view never computes a percentage, picks a unit
+// or decides what an absent value looks like. That work happens in `src/format.rs`,
+// where it is tested.
+
+export struct StatCard {
+    label: string,
+    value: string,
+    // Optional secondary line, e.g. "+18.4% vs previous period".
+    detail: string,
+    // A status name, used only to tint the value.
+    status: string,
+}
+
+export struct ServerRow {
+    id: string,
+    name: string,
+    host: string,
+    status: string,
+    status-label: string,
+    cpu: string,
+    // 0.0-1.0, for the inline bar. Negative means there was no measurement.
+    cpu-fraction: float,
+    ram: string,
+    ram-fraction: float,
+    disk: string,
+    disk-fraction: float,
+    uptime: string,
+    last-check: string,
+    tags: string,
+}
+
+export struct WebsiteCard {
+    id: string,
+    name: string,
+    url: string,
+    status: string,
+    status-label: string,
+    response: string,
+    ssl: string,
+    uptime: string,
+    visitors: string,
+    // The cached preview. Loaded in Rust: Slint's `@image-url` is compile-time only, so
+    // a runtime path has to arrive already decoded.
+    thumbnail: image,
+    has-thumbnail: bool,
+    // What to show instead of an image, e.g. that the website is offline.
+    preview-message: string,
+    // Always shown next to a cached image, never omitted.
+    capture-age: string,
+}
+
+export struct AlertRow {
+    id: string,
+    severity: string,
+    severity-label: string,
+    title: string,
+    detail: string,
+    subject: string,
+    opened: string,
+    acknowledged: bool,
+    resolved: bool,
+}
+
+export struct EventRow {
+    severity: string,
+    kind: string,
+    message: string,
+    when: string,
+}
+
+export struct ProcessRow {
+    pid: string,
+    user: string,
+    command: string,
+    cpu: string,
+    memory: string,
+}
+
+export struct ContainerRow {
+    name: string,
+    image: string,
+    status: string,
+    status-text: string,
+    cpu: string,
+    memory: string,
+    restarts: string,
+}
+
+export struct ServiceRow {
+    name: string,
+    state: string,
+    state-label: string,
+    description: string,
+}
+
+export struct ChartData {
+    title: string,
+    // SVG path commands, pre-computed in Rust.
+    line: string,
+    // Filled min/max band; empty for raw series where min == max.
+    band: string,
+    y-labels: [string],
+    x-labels: [string],
+    has-data: bool,
+    // Shown in place of the chart when there is nothing to draw.
+    empty-message: string,
+}
+
+export struct TopPageRow {
+    url: string,
+    views: string,
+    visitors: string,
+}
+
+export struct ServerDetail {
+    id: string,
+    name: string,
+    host: string,
+    status: string,
+    status-label: string,
+    os: string,
+    kernel: string,
+    architecture: string,
+    cpu-model: string,
+    cores: string,
+    uptime: string,
+    last-check: string,
+    last-error: string,
+    cards: [StatCard],
+    // `false` when the host has no Docker at all, which is different from having none
+    // running — the panel is hidden entirely rather than shown empty.
+    has-docker: bool,
+    has-systemd: bool,
+}
+
+export struct WebsiteDetail {
+    id: string,
+    name: string,
+    url: string,
+    status: string,
+    status-label: string,
+    http-status: string,
+    response: string,
+    uptime-24h: string,
+    ssl-issuer: string,
+    ssl-expiry: string,
+    ssl-subject: string,
+    thumbnail: image,
+    has-thumbnail: bool,
+    preview-message: string,
+    capture-age: string,
+    cards: [StatCard],
+    // Analytics are hidden entirely when no provider is configured for this site.
+    has-analytics: bool,
+    analytics-updated: string,
+}

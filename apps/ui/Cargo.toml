@@ -1,0 +1,48 @@
+[package]
+name = "vds-admin"
+description = "VDS Admin — infrastructure, website and analytics monitoring."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints.rust]
+# See the note in src/main.rs: the Slint-generated module needs `allow(unsafe_code)`.
+unsafe_code = "deny"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+
+[[bin]]
+name = "vds-admin"
+path = "src/main.rs"
+
+[features]
+# Fabricated analytics and placeholder screenshots, so the interface can be exercised
+# with nothing configured. Never enabled in a release build.
+demo-providers = ["vds-composition/demo-providers"]
+
+[dependencies]
+vds-domain.workspace = true
+vds-application.workspace = true
+vds-composition.workspace = true
+
+async-trait.workspace = true
+chrono.workspace = true
+slint = { workspace = true, features = ["backend-winit", "renderer-software"] }
+tokio = { workspace = true }
+tokio-util.workspace = true
+tracing.workspace = true
+
+[build-dependencies]
+slint-build.workspace = true
+
+[dev-dependencies]
+image.workspace = true
+tempfile.workspace = true
+tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread"] }
+vds-application = { workspace = true, features = ["testing"] }

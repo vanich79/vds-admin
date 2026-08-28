@@ -1,0 +1,39 @@
+[package]
+name = "vds-infra-analytics"
+description = "Analytics providers. Yandex.Metrica today; the port is what makes the next one cheap."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+
+[features]
+# Development-only providers. Never enabled in a release profile; see
+# `docs/adr/004-screenshot-architecture.md` for why demo data is fenced off this hard.
+demo-providers = []
+
+[dependencies]
+vds-domain.workspace = true
+
+async-trait.workspace = true
+chrono.workspace = true
+reqwest.workspace = true
+rustls.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true }
+tracing.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread"] }
+wiremock.workspace = true

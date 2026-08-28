@@ -1,0 +1,393 @@
+// Modal forms.
+//
+// The two flows that create something: adding a server and adding a website. They are
+// modals rather than screens because both are short, both are interruptions to what the
+// user was doing, and both should return you to exactly where you were.
+//
+// As everywhere else in the interface, these are layout only. A dialog collects strings
+// and raises a callback; validation, credential storage and persistence happen in the
+// application layer, where they are tested.
+
+import { ScrollView, LineEdit, TextEdit, ComboBox, CheckBox } from "std-widgets.slint";
+import { Theme, Layout } from "theme.slint";
+import { L } from "strings.slint";
+import { FlatButton } from "components.slint";
+
+// The dimmed backdrop shared by every dialog.
+//
+// It swallows clicks, so a click that misses the form cannot reach the screen behind it —
+// which would otherwise let someone open a server's detail page through a modal.
+component Backdrop inherits Rectangle {
+    callback dismissed();
+
+    background: #000000cc;
+
+    TouchArea {
+        clicked => { root.dismissed(); }
+    }
+}
+
+// A labelled field. One place decides how a form row looks.
+component Field inherits HorizontalLayout {
+    in property <string> label;
+    in property <string> placeholder;
+    in property <bool> secret: false;
+    /// Accepts text that spans lines. Required for a PEM private key: a `LineEdit` is
+    /// single-line, so pasting a seven-line key into one keeps the first line and the
+    /// SSH layer is handed a fragment it cannot parse.
+    in property <bool> multiline: false;
+    in-out property <string> value;
+
+    spacing: Theme.space-md;
+
+    Text {
+        text: root.label;
+        font-size: Theme.text-sm;
+        color: Theme.text-muted;
+        width: 124px;
+        vertical-alignment: root.multiline ? top : center;
+    }
+
+    if !root.multiline: LineEdit {
+        placeholder-text: root.placeholder;
+        input-type: root.secret ? InputType.password : InputType.text;
+        text <=> root.value;
+        horizontal-stretch: 1;
+    }
+
+    // Not masked, deliberately. Every tool that accepts a pasted key shows it — and a
+    // key hidden behind dots cannot be checked for a truncated paste, which is exactly
+    // the mistake this field exists to prevent.
+    if root.multiline: TextEdit {
+        placeholder-text: root.placeholder;
+        text <=> root.value;
+        wrap: no-wrap;
+        height: 108px;
+        horizontal-stretch: 1;
+    }
+}
+
+// A row that holds an arbitrary control beside a label.
+component Labelled inherits HorizontalLayout {
+    in property <string> label;
+
+    spacing: Theme.space-md;
+
+    Text {
+        text: root.label;
+        font-size: Theme.text-sm;
+        color: Theme.text-muted;
+        width: 124px;
+        vertical-alignment: center;
+    }
+
+    @children
+}
+
+// The frame every dialog shares: title, scrolling body, error line, buttons.
+component DialogFrame inherits Rectangle {
+    in property <string> title;
+    in property <string> subtitle;
+    in property <string> error;
+    in property <string> confirm-text: L.action_add;
+    in property <bool> busy: false;
+
+    callback confirmed();
+    callback cancelled();
+
+    // Narrow enough to read comfortably, and capped so it does not sprawl on a wide
+    // monitor. On a phone it takes what it can get.
+    width: min(Layout.window-width - 2 * Theme.space-lg, 520px);
+    background: Theme.surface;
+    border-radius: Theme.radius;
+    border-width: 1px;
+    border-color: Theme.border;
+
+    VerticalLayout {
+        padding: Theme.space-lg;
+        spacing: Theme.space-md;
+
+        VerticalLayout {
+            spacing: Theme.space-xs;
+            Text {
+                text: root.title;
+                font-size: Theme.text-lg;
+                font-weight: 700;
+                color: Theme.text;
+            }
+            if root.subtitle != "": Text {
+                text: root.subtitle;
+                font-size: Theme.text-sm;
+                color: Theme.text-muted;
+                wrap: word-wrap;
+            }
+        }
+
+        Rectangle { height: 1px; background: Theme.border; }
+
+        ScrollView {
+            // A `ScrollView` has no natural height: without a floor it collapses to a
+            // single row and the form appears to have one field. `min-height` is what
+            // actually makes the fields visible; `max-height` still bounds a long form so
+            // it scrolls rather than pushing the buttons off a phone screen, where they
+            // are the only way out of the modal.
+            min-height: 300px;
+            max-height: 440px;
+            vertical-stretch: 1;
+
+            VerticalLayout {
+                spacing: Theme.space-md;
+                @children
+            }
+        }
+
+        // Reserves no space until there is something to say, so the buttons do not jump
+        // the first time a form is rejected.
+        if root.error != "": Rectangle {
+            background: Theme.status-critical.with-alpha(0.12);
+            border-radius: Theme.radius-sm;
+            border-width: 1px;
+            border-color: Theme.status-critical.with-alpha(0.4);
+
+            HorizontalLayout {
+                padding: Theme.space-sm;
+                spacing: Theme.space-sm;
+                Text {
+                    text: "!";
+                    font-size: Theme.text-base;
+                    font-weight: 700;
+                    color: Theme.status-critical;
+                    width: 14px;
+                    horizontal-alignment: center;
+                }
+                Text {
+                    text: root.error;
+                    font-size: Theme.text-sm;
+                    color: Theme.status-critical;
+                    wrap: word-wrap;
+                    horizontal-stretch: 1;
+                }
+            }
+        }
+
+        HorizontalLayout {
+            spacing: Theme.space-sm;
+            alignment: end;
+
+            FlatButton {
+                text: L.action_cancel;
+                enabled: !root.busy;
+                clicked => { root.cancelled(); }
+            }
+            FlatButton {
+                text: root.busy ? L.action_working : root.confirm-text;
+                primary: true;
+                enabled: !root.busy;
+                clicked => { root.confirmed(); }
+            }
+        }
+    }
+}
+
+export component AddServerDialog inherits Rectangle {
+    in property <string> error;
+    in property <bool> busy: false;
+
+    // 0 = SSH, 1 = agent. Mirrored in `runtime::connection_mode_at`.
+    in-out property <int> mode: 0;
+    // 0 = password, 1 = private key, 2 = encrypted private key.
+    in-out property <int> auth-kind: 0;
+
+    in-out property <string> server-name;
+    in-out property <string> host;
+    in-out property <string> port: "22";
+    in-out property <string> username: "root";
+    in-out property <string> secret;
+    in-out property <string> passphrase;
+    in-out property <string> agent-token;
+    in-out property <string> interval: "30";
+
+    callback confirmed();
+    callback cancelled();
+
+    property <bool> is-agent: root.mode == 1;
+
+    Backdrop { dismissed => { root.cancelled(); } }
+
+    HorizontalLayout {
+        alignment: center;
+        VerticalLayout {
+            alignment: center;
+
+            DialogFrame {
+                title: L.servers_add;
+                subtitle: root.is-agent
+                    ? L.dlg_agent_subtitle
+                    : L.dlg_ssh_subtitle;
+                error: root.error;
+                busy: root.busy;
+                confirmed => { root.confirmed(); }
+                cancelled => { root.cancelled(); }
+
+                Field {
+                    label: L.label_name;
+                    placeholder: L.dlg_ph_server_name;
+                    value <=> root.server-name;
+                }
+                Field {
+                    label: L.label_host;
+                    placeholder: L.dlg_ph_host;
+                    value <=> root.host;
+                }
+
+                Labelled {
+                    label: L.dlg_connect_via;
+                    ComboBox {
+                        model: [L.dlg_mode_ssh, L.dlg_mode_agent];
+                        current-index <=> root.mode;
+                        horizontal-stretch: 1;
+                        selected => {
+                            // The default port differs, and typing 22 into an agent form
+                            // is a mistake nobody enjoys diagnosing.
+                            root.port = root.mode == 1 ? "9443" : "22";
+                        }
+                    }
+                }
+
+                Field {
+                    label: L.label_port;
+                    placeholder: root.is-agent ? "9443" : "22";
+                    value <=> root.port;
+                }
+
+                if !root.is-agent: VerticalLayout {
+                    spacing: Theme.space-md;
+
+                    Field {
+                        label: L.dlg_username;
+                        placeholder: L.dlg_ph_username;
+                        value <=> root.username;
+                    }
+
+                    Labelled {
+                        label: L.dlg_authentication;
+                        ComboBox {
+                            model: [L.dlg_auth_password, L.dlg_auth_key, L.dlg_auth_encrypted_key];
+                            current-index <=> root.auth-kind;
+                            horizontal-stretch: 1;
+                        }
+                    }
+
+                    Field {
+                        label: root.auth-kind == 0 ? L.dlg_auth_password : L.dlg_auth_key;
+                        placeholder: root.auth-kind == 0
+                            ? L.dlg_ph_password
+                            : L.dlg_ph_key;
+                        // A password is one line and is masked; a key is many lines and
+                        // is not. Two kinds of secret, two different controls.
+                        secret: root.auth-kind == 0;
+                        multiline: root.auth-kind != 0;
+                        value <=> root.secret;
+                    }
+
+                    if root.auth-kind == 2: Field {
+                        label: L.dlg_passphrase;
+                        placeholder: L.dlg_ph_passphrase;
+                        secret: true;
+                        value <=> root.passphrase;
+                    }
+                }
+
+                if root.is-agent: Field {
+                    label: L.dlg_token;
+                    placeholder: L.dlg_ph_token;
+                    secret: true;
+                    value <=> root.agent-token;
+                }
+
+                Field {
+                    label: L.dlg_poll_every;
+                    placeholder: L.dlg_ph_seconds;
+                    value <=> root.interval;
+                }
+
+                if root.is-agent: Text {
+                    text: L.dlg_fingerprint_hint;
+                    font-size: Theme.text-xs;
+                    color: Theme.text-faint;
+                    wrap: word-wrap;
+                }
+            }
+        }
+    }
+}
+
+export component AddWebsiteDialog inherits Rectangle {
+    in property <string> error;
+    in property <bool> busy: false;
+
+    in-out property <string> website-name;
+    in-out property <string> url;
+    in-out property <string> interval: "60";
+    in-out property <string> expected-status: "200";
+    in-out property <string> expected-text;
+
+    callback confirmed();
+    callback cancelled();
+
+    Backdrop { dismissed => { root.cancelled(); } }
+
+    HorizontalLayout {
+        alignment: center;
+        VerticalLayout {
+            alignment: center;
+
+            DialogFrame {
+                title: L.websites_add;
+                subtitle: L.dlg_website_subtitle;
+                error: root.error;
+                busy: root.busy;
+                confirmed => { root.confirmed(); }
+                cancelled => { root.cancelled(); }
+
+                Field {
+                    label: L.label_name;
+                    placeholder: L.dlg_ph_website_name;
+                    value <=> root.website-name;
+                }
+                Field {
+                    label: L.dlg_url;
+                    placeholder: L.dlg_ph_url;
+                    value <=> root.url;
+                }
+                Text {
+                    text: L.dlg_scheme_hint;
+                    font-size: Theme.text-xs;
+                    color: Theme.text-faint;
+                }
+
+                Field {
+                    label: L.dlg_check_every;
+                    placeholder: L.dlg_ph_seconds;
+                    value <=> root.interval;
+                }
+                Field {
+                    label: L.dlg_expected_status;
+                    placeholder: "200";
+                    value <=> root.expected-status;
+                }
+                Field {
+                    label: L.dlg_expected_text;
+                    placeholder: L.dlg_ph_expected_text;
+                    value <=> root.expected-text;
+                }
+                Text {
+                    text: L.dlg_expected_text_hint;
+                    font-size: Theme.text-xs;
+                    color: Theme.text-faint;
+                    wrap: word-wrap;
+                }
+            }
+        }
+    }
+}

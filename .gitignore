@@ -1,0 +1,15 @@
+/target
+**/target
+Cargo.lock.bak
+*.db
+*.db-wal
+*.db-shm
+*.bak
+.env
+/dist
+/artifacts
+.dev-env.sh
+*.keystore
+*.jks
+local.properties
+.DS_Store
