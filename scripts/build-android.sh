@@ -90,7 +90,9 @@ for abi in "${ABIS[@]}"; do
     if [ ! -f "$built" ]; then
         built="$(find target -name '*.apk' -newer Cargo.toml 2>/dev/null | head -n 1)"
     fi
-    [ -n "$built" ] && [ -f "$built" ] || die "no APK was produced for $abi"
+    if [ -z "$built" ] || [ ! -f "$built" ]; then
+        die "no APK was produced for $abi"
+    fi
 
     cp "$built" "$OUT_DIR/vds-admin-$abi-$BUILD_TYPE.apk"
     say "  $OUT_DIR/vds-admin-$abi-$BUILD_TYPE.apk"

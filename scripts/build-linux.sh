@@ -119,7 +119,12 @@ APPRUN
 fi
 
 say "Writing checksums"
-( cd "$OUT_DIR" && sha256sum ./* > SHA256SUMS 2>/dev/null || true )
+(
+    cd "$OUT_DIR" || die "$OUT_DIR disappeared"
+    # An empty directory is not an error here: a format may have been skipped
+    # for a missing tool, and the checksum file is then legitimately empty.
+    sha256sum ./* > SHA256SUMS 2>/dev/null || true
+)
 
 say "Done:"
 ls -lh "$OUT_DIR"

@@ -16,7 +16,7 @@
 
 set -uo pipefail
 
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 
 OUT_DIR="${OUT_DIR:-dist}"
 HOST="$(rustc -vV | awk '/^host:/ {print $2}')"
