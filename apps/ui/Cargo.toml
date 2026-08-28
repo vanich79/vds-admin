@@ -21,6 +21,38 @@ panic = "deny"
 name = "vds-admin"
 path = "src/main.rs"
 
+# --- Android ---------------------------------------------------------------------
+#
+# Read by `cargo-apk` to generate the manifest. Kept here rather than in a hand-written
+# AndroidManifest.xml so that the permissions live next to the code that needs them.
+
+[package.metadata.android]
+package = "dev.vdsadmin.app"
+apk_name = "vds-admin"
+# Portrait and landscape both work; the layout reflows at 768px.
+resizeable_activity = true
+
+[package.metadata.android.sdk]
+# 24 is Android 7.0. Below that the Slint renderer's requirements stop being met, and
+# the population still on it is not worth the compatibility shims.
+min_sdk_version = 24
+target_sdk_version = 34
+compile_sdk_version = 34
+
+# The application exists to reach servers over the network. Without this the APK installs
+# and then fails every connection.
+[[package.metadata.android.uses_permission]]
+name = "android.permission.INTERNET"
+
+# Lets the app tell "the server is down" from "this phone has no connection", which are
+# very different things to show a user at two in the morning.
+[[package.metadata.android.uses_permission]]
+name = "android.permission.ACCESS_NETWORK_STATE"
+
+# Android 13 and later require this to be requested for notifications to appear at all.
+[[package.metadata.android.uses_permission]]
+name = "android.permission.POST_NOTIFICATIONS"
+
 [features]
 # Fabricated analytics and placeholder screenshots, so the interface can be exercised
 # with nothing configured. Never enabled in a release build.
