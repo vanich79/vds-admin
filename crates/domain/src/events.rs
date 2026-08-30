@@ -98,6 +98,35 @@ pub enum DomainEvent {
         service: String,
         state: String,
     },
+    /// Someone changed a file on a server through this application.
+    ///
+    /// The audit trail for the one part of the product that writes. Everything else here
+    /// observes; if a stolen credential is ever used to alter a configuration file, this
+    /// is the record that says which file, when, and on which machine.
+    FileChanged {
+        server_id: ServerId,
+        path: String,
+        action: FileAction,
+    },
+}
+
+/// What was done to a file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FileAction {
+    Written,
+    Deleted,
+    DirectoryCreated,
+}
+
+impl FileAction {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            FileAction::Written => "written",
+            FileAction::Deleted => "deleted",
+            FileAction::DirectoryCreated => "directory_created",
+        }
+    }
 }
 
 impl DomainEvent {
@@ -120,6 +149,7 @@ impl DomainEvent {
             DomainEvent::IncidentResolved { .. } => "incident_resolved",
             DomainEvent::ContainerStateChanged { .. } => "container_state_changed",
             DomainEvent::ServiceStateChanged { .. } => "service_state_changed",
+            DomainEvent::FileChanged { .. } => "file_changed",
         }
     }
 
@@ -146,9 +176,9 @@ impl DomainEvent {
             | DomainEvent::ServerMetricsCollected { .. }
             | DomainEvent::AnalyticsUpdated { .. }
             | DomainEvent::ScreenshotUpdated { .. } => Status::Healthy,
-            DomainEvent::ContainerStateChanged { .. } | DomainEvent::ServiceStateChanged { .. } => {
-                Status::Unknown
-            }
+            DomainEvent::ContainerStateChanged { .. }
+            | DomainEvent::ServiceStateChanged { .. }
+            | DomainEvent::FileChanged { .. } => Status::Unknown,
         }
     }
 
@@ -160,9 +190,8 @@ impl DomainEvent {
             | DomainEvent::ServerCollectionFailed { server_id, .. }
             | DomainEvent::MetricThresholdExceeded { server_id, .. }
             | DomainEvent::ContainerStateChanged { server_id, .. }
-            | DomainEvent::ServiceStateChanged { server_id, .. } => {
-                Some(AlertSubject::Server(*server_id))
-            }
+            | DomainEvent::ServiceStateChanged { server_id, .. }
+            | DomainEvent::FileChanged { server_id, .. } => Some(AlertSubject::Server(*server_id)),
             DomainEvent::WebsiteStatusChanged { website_id, .. }
             | DomainEvent::WebsiteChecked { website_id, .. }
             | DomainEvent::SslExpiringSoon { website_id, .. }

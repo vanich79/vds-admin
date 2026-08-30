@@ -17,6 +17,7 @@ pub mod analytics;
 pub mod config;
 pub mod correlation;
 pub mod dashboard;
+pub mod files;
 pub mod metrics;
 pub mod monitoring;
 pub mod provisioning;

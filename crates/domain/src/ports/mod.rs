@@ -13,6 +13,7 @@
 mod analytics;
 mod clock;
 mod events;
+mod files;
 mod notification;
 mod repositories;
 mod screenshot;
@@ -22,6 +23,9 @@ mod transport;
 pub use analytics::{AnalyticsProvider, AnalyticsQuery, ProviderError, ProviderHealth};
 pub use clock::{Clock, FixedClock, SystemClock};
 pub use events::{EventPublisher, NullEventPublisher, RecordingEventPublisher};
+pub use files::{
+    DEFAULT_MAX_READ_BYTES, DirectoryEntry, EntryKind, FileBrowser, FileContents, FileError,
+};
 pub use notification::{NotificationCapabilities, NotificationError, NotificationProvider};
 pub use repositories::{
     AlertRepository, AnalyticsRepository, EventRepository, MetricsRepository, RepositoryError,
@@ -32,4 +36,5 @@ pub use secrets::{Secret, SecretKind, SecretStore, SecretStoreError};
 pub use transport::{
     Capability, CollectError, Collector, CollectorOutput, Command, CommandOutput, CommandRunner,
     SAMPLE_SEPARATOR, ServerProbe, TransportCapabilities, TransportError, TransportErrorKind,
+    shell_quote,
 };

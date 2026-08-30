@@ -45,7 +45,13 @@ impl SshServerProbe {
     }
 
     /// Returns a usable session, connecting or reconnecting as required.
-    async fn session(&self, server: &Server) -> Result<Arc<SshSession>, TransportError> {
+    ///
+    /// Visible to the crate so the file browser shares this pool rather than opening a
+    /// second connection per server.
+    pub(crate) async fn session_for(
+        &self,
+        server: &Server,
+    ) -> Result<Arc<SshSession>, TransportError> {
         // A stale session is dropped rather than used: reusing one the server has already
         // timed out produces a confusing "channel open failed" instead of a clean
         // reconnect.
@@ -153,7 +159,7 @@ impl ServerProbe for SshServerProbe {
         server: &Server,
         at: DateTime<Utc>,
     ) -> Result<ServerSnapshot, TransportError> {
-        let session = self.session(server).await?;
+        let session = self.session_for(server).await?;
         let runner = crate::session::SshCommandRunner::new(Arc::clone(&session));
 
         match self.registry.collect(&runner, server.id, at).await {
@@ -170,7 +176,7 @@ impl ServerProbe for SshServerProbe {
     }
 
     async fn ping(&self, server: &Server) -> Result<(), TransportError> {
-        let session = self.session(server).await?;
+        let session = self.session_for(server).await?;
         // Cheapest possible proof of life: a shell that runs and exits.
         session.run_script("exit 0\n").await.map(|_| ())
     }

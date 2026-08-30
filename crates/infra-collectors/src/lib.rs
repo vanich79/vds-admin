@@ -39,6 +39,7 @@
 pub mod cpu;
 pub mod disk;
 pub mod docker;
+pub mod files;
 pub mod load;
 pub mod memory;
 pub mod network;

@@ -381,6 +381,10 @@ ENTRIES = [
     ("ev_service_state", "Service {} is {}", "Служба {}: {}"),
     ("ev_website_checked", "Website checked", "Сайт проверен"),
     ("ev_metrics_collected", "Collected {} metrics", "Собрано метрик: {}"),
+    # The audit trail for the one part of the product that writes to a server.
+    ("ev_file_written", "File saved: {}", "Файл сохранён: {}"),
+    ("ev_file_deleted", "File deleted: {}", "Файл удалён: {}"),
+    ("ev_file_dir_created", "Folder created: {}", "Папка создана: {}"),
 
     # --- incident rows ------------------------------------------------------------
     ("incident_open_for", "Open for {}", "Открыт {}"),
@@ -459,7 +463,57 @@ ENTRIES = [
     ("err_counter_malformed", "A counter number is digits only — not a link",
      "Номер счётчика — только цифры, не ссылка"),
     ("err_no_analytics_token", "Save the OAuth token in Settings first",
-     "Сначала сохраните OAuth-токен в настройках"),]
+     "Сначала сохраните OAuth-токен в настройках"),
+
+    # --- file manager -------------------------------------------------------------
+    # The only screen that changes anything on a server, so its wording is deliberately
+    # plain about what is about to happen.
+    ("nav_files", "Files", "Файлы"),
+    ("files_title", "Files", "Файлы"),
+    ("files_subtitle", "Browse and edit files on the server",
+     "Просмотр и редактирование файлов на сервере"),
+    ("files_site_folders", "Site folders", "Папки сайтов"),
+    ("files_no_site_folders", "No site folders found in the web server configuration",
+     "В конфигурации веб-сервера папки сайтов не найдены"),
+    ("files_up", "Up a level", "На уровень вверх"),
+    ("files_empty", "This folder is empty", "Папка пуста"),
+    ("files_loading", "Loading…", "Загрузка…"),
+    ("files_new_folder", "New folder", "Новая папка"),
+    ("files_new_file", "New file", "Новый файл"),
+    ("files_folder_name", "Folder name", "Название папки"),
+    ("files_file_name", "File name", "Имя файла"),
+    ("files_edit", "Edit", "Изменить"),
+    ("files_delete_title", "Delete", "Удалить"),
+    ("files_delete_confirm", "Delete {}? This cannot be undone.",
+     "Удалить {}? Отменить это будет нельзя."),
+    ("files_delete_folder_note", "Only an empty folder can be deleted.",
+     "Удалить можно только пустую папку."),
+    ("files_saved", "Saved", "Сохранено"),
+    ("files_unsaved", "Unsaved changes", "Есть несохранённые изменения"),
+    ("files_truncated",
+     "Only the beginning of this file is shown — it is too large to edit here safely.",
+     "Показано только начало файла — он слишком велик, чтобы редактировать его здесь."),
+    ("files_read_only", "Read-only", "Только чтение"),
+    ("files_modified", "Modified", "Изменён"),
+    ("files_owner", "Owner", "Владелец"),
+    ("files_permissions", "Permissions", "Права"),
+    ("files_path", "Path", "Путь"),
+    ("files_link_to", "link to {}", "ссылка на {}"),
+    ("files_items", "{} items", "объектов: {}"),
+
+    # Stable codes from `FileError::kind`, translated here because a formatted English
+    # sentence cannot be translated after it exists.
+    ("err_file_not_found", "No such file or folder", "Файл или папка не найдены"),
+    ("err_file_denied", "You do not have permission to do that on this server",
+     "На этом сервере нет прав на это действие"),
+    ("err_file_not_a_directory", "That is not a folder", "Это не папка"),
+    ("err_file_not_a_file", "That is not a file", "Это не файл"),
+    ("err_file_not_text", "This is not a text file, so it cannot be shown or edited",
+     "Это не текстовый файл — показать или изменить его нельзя"),
+    ("err_file_too_large", "The file is too large to open here",
+     "Файл слишком велик, чтобы открыть его здесь"),
+    ("err_file_malformed", "The server's answer could not be read: {}",
+     "Не удалось разобрать ответ сервера: {}"),]
 
 
 def slint_global():

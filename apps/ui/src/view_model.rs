@@ -480,6 +480,41 @@ pub fn describe_event(event: &vds_domain::events::DomainEvent) -> String {
         E::ServerMetricsCollected { metric_count, .. } => {
             fill(strings.ev_metrics_collected, &metric_count.to_string())
         }
+        E::FileChanged { path, action, .. } => fill(
+            match action {
+                vds_domain::events::FileAction::Written => strings.ev_file_written,
+                vds_domain::events::FileAction::Deleted => strings.ev_file_deleted,
+                vds_domain::events::FileAction::DirectoryCreated => strings.ev_file_dir_created,
+            },
+            path,
+        ),
+    }
+}
+
+/// A file operation's failure, in the user's language.
+///
+/// Keyed on [`FileError::kind`] rather than on the error's own text: the domain formats
+/// its messages in English, and a sentence that already exists cannot be translated. The
+/// one case that carries the server's own words through is `malformed`, where the useful
+/// part is the quotation.
+pub fn describe_file_error(error: &vds_domain::ports::FileError) -> String {
+    let strings = crate::i18n::strings();
+    match error.kind() {
+        "not_found" => strings.err_file_not_found.to_owned(),
+        "permission_denied" => strings.err_file_denied.to_owned(),
+        "not_a_directory" => strings.err_file_not_a_directory.to_owned(),
+        "not_a_file" => strings.err_file_not_a_file.to_owned(),
+        "not_text" => strings.err_file_not_text.to_owned(),
+        "too_large" => strings.err_file_too_large.to_owned(),
+        // A broken connection is the transport's story to tell, and it is already
+        // translated by the code that handles every other connection failure.
+        "transport" => match error {
+            vds_domain::ports::FileError::Transport(inner) => {
+                describe_connection_error(Some(inner.kind()), &inner.to_string())
+            }
+            _ => error.to_string(),
+        },
+        _ => fill(strings.err_file_malformed, &error.to_string()),
     }
 }
 

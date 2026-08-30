@@ -381,6 +381,9 @@ pub struct Strings {
     pub ev_service_state: &'static str,
     pub ev_website_checked: &'static str,
     pub ev_metrics_collected: &'static str,
+    pub ev_file_written: &'static str,
+    pub ev_file_deleted: &'static str,
+    pub ev_file_dir_created: &'static str,
     pub incident_open_for: &'static str,
     pub err_server_name_empty: &'static str,
     pub err_server_host_empty: &'static str,
@@ -421,6 +424,39 @@ pub struct Strings {
     pub err_counter_empty: &'static str,
     pub err_counter_malformed: &'static str,
     pub err_no_analytics_token: &'static str,
+    pub nav_files: &'static str,
+    pub files_title: &'static str,
+    pub files_subtitle: &'static str,
+    pub files_site_folders: &'static str,
+    pub files_no_site_folders: &'static str,
+    pub files_up: &'static str,
+    pub files_empty: &'static str,
+    pub files_loading: &'static str,
+    pub files_new_folder: &'static str,
+    pub files_new_file: &'static str,
+    pub files_folder_name: &'static str,
+    pub files_file_name: &'static str,
+    pub files_edit: &'static str,
+    pub files_delete_title: &'static str,
+    pub files_delete_confirm: &'static str,
+    pub files_delete_folder_note: &'static str,
+    pub files_saved: &'static str,
+    pub files_unsaved: &'static str,
+    pub files_truncated: &'static str,
+    pub files_read_only: &'static str,
+    pub files_modified: &'static str,
+    pub files_owner: &'static str,
+    pub files_permissions: &'static str,
+    pub files_path: &'static str,
+    pub files_link_to: &'static str,
+    pub files_items: &'static str,
+    pub err_file_not_found: &'static str,
+    pub err_file_denied: &'static str,
+    pub err_file_not_a_directory: &'static str,
+    pub err_file_not_a_file: &'static str,
+    pub err_file_not_text: &'static str,
+    pub err_file_too_large: &'static str,
+    pub err_file_malformed: &'static str,
 }
 
 impl Strings {
@@ -703,6 +739,9 @@ impl Strings {
             ev_service_state: "Service {} is {}",
             ev_website_checked: "Website checked",
             ev_metrics_collected: "Collected {} metrics",
+            ev_file_written: "File saved: {}",
+            ev_file_deleted: "File deleted: {}",
+            ev_file_dir_created: "Folder created: {}",
             incident_open_for: "Open for {}",
             err_server_name_empty: "Enter a name for the server",
             err_server_host_empty: "Enter the server's address",
@@ -743,6 +782,39 @@ impl Strings {
             err_counter_empty: "Enter the counter number",
             err_counter_malformed: "A counter number is digits only — not a link",
             err_no_analytics_token: "Save the OAuth token in Settings first",
+            nav_files: "Files",
+            files_title: "Files",
+            files_subtitle: "Browse and edit files on the server",
+            files_site_folders: "Site folders",
+            files_no_site_folders: "No site folders found in the web server configuration",
+            files_up: "Up a level",
+            files_empty: "This folder is empty",
+            files_loading: "Loading…",
+            files_new_folder: "New folder",
+            files_new_file: "New file",
+            files_folder_name: "Folder name",
+            files_file_name: "File name",
+            files_edit: "Edit",
+            files_delete_title: "Delete",
+            files_delete_confirm: "Delete {}? This cannot be undone.",
+            files_delete_folder_note: "Only an empty folder can be deleted.",
+            files_saved: "Saved",
+            files_unsaved: "Unsaved changes",
+            files_truncated: "Only the beginning of this file is shown — it is too large to edit here safely.",
+            files_read_only: "Read-only",
+            files_modified: "Modified",
+            files_owner: "Owner",
+            files_permissions: "Permissions",
+            files_path: "Path",
+            files_link_to: "link to {}",
+            files_items: "{} items",
+            err_file_not_found: "No such file or folder",
+            err_file_denied: "You do not have permission to do that on this server",
+            err_file_not_a_directory: "That is not a folder",
+            err_file_not_a_file: "That is not a file",
+            err_file_not_text: "This is not a text file, so it cannot be shown or edited",
+            err_file_too_large: "The file is too large to open here",
+            err_file_malformed: "The server's answer could not be read: {}",
         }
     }
 
@@ -1025,6 +1097,9 @@ impl Strings {
             ev_service_state: "Служба {}: {}",
             ev_website_checked: "Сайт проверен",
             ev_metrics_collected: "Собрано метрик: {}",
+            ev_file_written: "Файл сохранён: {}",
+            ev_file_deleted: "Файл удалён: {}",
+            ev_file_dir_created: "Папка создана: {}",
             incident_open_for: "Открыт {}",
             err_server_name_empty: "Укажите название сервера",
             err_server_host_empty: "Укажите адрес сервера",
@@ -1065,6 +1140,39 @@ impl Strings {
             err_counter_empty: "Укажите номер счётчика",
             err_counter_malformed: "Номер счётчика — только цифры, не ссылка",
             err_no_analytics_token: "Сначала сохраните OAuth-токен в настройках",
+            nav_files: "Файлы",
+            files_title: "Файлы",
+            files_subtitle: "Просмотр и редактирование файлов на сервере",
+            files_site_folders: "Папки сайтов",
+            files_no_site_folders: "В конфигурации веб-сервера папки сайтов не найдены",
+            files_up: "На уровень вверх",
+            files_empty: "Папка пуста",
+            files_loading: "Загрузка…",
+            files_new_folder: "Новая папка",
+            files_new_file: "Новый файл",
+            files_folder_name: "Название папки",
+            files_file_name: "Имя файла",
+            files_edit: "Изменить",
+            files_delete_title: "Удалить",
+            files_delete_confirm: "Удалить {}? Отменить это будет нельзя.",
+            files_delete_folder_note: "Удалить можно только пустую папку.",
+            files_saved: "Сохранено",
+            files_unsaved: "Есть несохранённые изменения",
+            files_truncated: "Показано только начало файла — он слишком велик, чтобы редактировать его здесь.",
+            files_read_only: "Только чтение",
+            files_modified: "Изменён",
+            files_owner: "Владелец",
+            files_permissions: "Права",
+            files_path: "Путь",
+            files_link_to: "ссылка на {}",
+            files_items: "объектов: {}",
+            err_file_not_found: "Файл или папка не найдены",
+            err_file_denied: "На этом сервере нет прав на это действие",
+            err_file_not_a_directory: "Это не папка",
+            err_file_not_a_file: "Это не файл",
+            err_file_not_text: "Это не текстовый файл — показать или изменить его нельзя",
+            err_file_too_large: "Файл слишком велик, чтобы открыть его здесь",
+            err_file_malformed: "Не удалось разобрать ответ сервера: {}",
         }
     }
 }
@@ -1384,6 +1492,9 @@ pub fn apply(window: &AppWindow, strings: &Strings) {
     global.set_ev_service_state(strings.ev_service_state.into());
     global.set_ev_website_checked(strings.ev_website_checked.into());
     global.set_ev_metrics_collected(strings.ev_metrics_collected.into());
+    global.set_ev_file_written(strings.ev_file_written.into());
+    global.set_ev_file_deleted(strings.ev_file_deleted.into());
+    global.set_ev_file_dir_created(strings.ev_file_dir_created.into());
     global.set_incident_open_for(strings.incident_open_for.into());
     global.set_err_server_name_empty(strings.err_server_name_empty.into());
     global.set_err_server_host_empty(strings.err_server_host_empty.into());
@@ -1424,6 +1535,39 @@ pub fn apply(window: &AppWindow, strings: &Strings) {
     global.set_err_counter_empty(strings.err_counter_empty.into());
     global.set_err_counter_malformed(strings.err_counter_malformed.into());
     global.set_err_no_analytics_token(strings.err_no_analytics_token.into());
+    global.set_nav_files(strings.nav_files.into());
+    global.set_files_title(strings.files_title.into());
+    global.set_files_subtitle(strings.files_subtitle.into());
+    global.set_files_site_folders(strings.files_site_folders.into());
+    global.set_files_no_site_folders(strings.files_no_site_folders.into());
+    global.set_files_up(strings.files_up.into());
+    global.set_files_empty(strings.files_empty.into());
+    global.set_files_loading(strings.files_loading.into());
+    global.set_files_new_folder(strings.files_new_folder.into());
+    global.set_files_new_file(strings.files_new_file.into());
+    global.set_files_folder_name(strings.files_folder_name.into());
+    global.set_files_file_name(strings.files_file_name.into());
+    global.set_files_edit(strings.files_edit.into());
+    global.set_files_delete_title(strings.files_delete_title.into());
+    global.set_files_delete_confirm(strings.files_delete_confirm.into());
+    global.set_files_delete_folder_note(strings.files_delete_folder_note.into());
+    global.set_files_saved(strings.files_saved.into());
+    global.set_files_unsaved(strings.files_unsaved.into());
+    global.set_files_truncated(strings.files_truncated.into());
+    global.set_files_read_only(strings.files_read_only.into());
+    global.set_files_modified(strings.files_modified.into());
+    global.set_files_owner(strings.files_owner.into());
+    global.set_files_permissions(strings.files_permissions.into());
+    global.set_files_path(strings.files_path.into());
+    global.set_files_link_to(strings.files_link_to.into());
+    global.set_files_items(strings.files_items.into());
+    global.set_err_file_not_found(strings.err_file_not_found.into());
+    global.set_err_file_denied(strings.err_file_denied.into());
+    global.set_err_file_not_a_directory(strings.err_file_not_a_directory.into());
+    global.set_err_file_not_a_file(strings.err_file_not_a_file.into());
+    global.set_err_file_not_text(strings.err_file_not_text.into());
+    global.set_err_file_too_large(strings.err_file_too_large.into());
+    global.set_err_file_malformed(strings.err_file_malformed.into());
 }
 
 #[cfg(test)]

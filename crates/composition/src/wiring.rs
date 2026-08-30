@@ -8,6 +8,7 @@ use vds_application::analytics::{
 };
 use vds_application::config::Configuration;
 use vds_application::dashboard::DashboardQueryService;
+use vds_application::files::FileService;
 use vds_application::metrics::{MetricsAggregationService, RetentionService};
 use vds_application::monitoring::{ServerMonitor, WebsiteMonitor};
 use vds_application::provisioning::ProvisioningService;
@@ -16,7 +17,7 @@ use vds_application::screenshots::{ScreenshotService, ScreenshotStore};
 use vds_domain::Status;
 use vds_domain::ports::{
     AlertRepository, AnalyticsProvider, AnalyticsRepository, Clock, EventPublisher,
-    EventRepository, MetricsRepository, NotificationProvider, ScreenshotProvider,
+    EventRepository, FileBrowser, MetricsRepository, NotificationProvider, ScreenshotProvider,
     ScreenshotRepository, SecretStore, ServerProbe, ServerRepository, SystemClock,
     WebsiteRepository,
 };
@@ -98,6 +99,7 @@ pub struct Application {
     pub retention: Arc<RetentionService>,
     pub dashboard: Arc<DashboardQueryService>,
     pub provisioning: Arc<ProvisioningService>,
+    pub files: Arc<FileService>,
     pub scheduler: Arc<Scheduler>,
 
     pub known_hosts: Arc<KnownHosts>,
@@ -156,10 +158,21 @@ impl Application {
             CollectorRegistry::essential()
         };
 
-        let probe: Arc<dyn ServerProbe> = Arc::new(SshServerProbe::new(
+        // One object, two roles. The probe owns the pool of SSH sessions, and the file
+        // browser reuses it rather than opening a second connection per server: doubling
+        // the handshakes is how a monitoring tool gets its own address banned by fail2ban.
+        let ssh = Arc::new(SshServerProbe::new(
             registry,
             Arc::clone(&secrets),
             Arc::clone(&known_hosts),
+        ));
+        let probe: Arc<dyn ServerProbe> = Arc::clone(&ssh) as Arc<dyn ServerProbe>;
+        let file_browser: Arc<dyn FileBrowser> = Arc::clone(&ssh) as Arc<dyn FileBrowser>;
+
+        let files = Arc::new(FileService::new(
+            file_browser,
+            Arc::clone(&servers),
+            Arc::clone(&events),
         ));
 
         let server_monitor = Arc::new(ServerMonitor::new(
@@ -358,6 +371,7 @@ impl Application {
             retention,
             dashboard,
             provisioning,
+            files,
             scheduler,
             known_hosts,
             database,
