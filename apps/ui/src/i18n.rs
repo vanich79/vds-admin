@@ -449,6 +449,10 @@ pub struct Strings {
     pub files_permissions: &'static str,
     pub files_path: &'static str,
     pub files_link_to: &'static str,
+    pub files_binary: &'static str,
+    pub files_image_too_large: &'static str,
+    pub files_image_broken: &'static str,
+    pub files_image_size: &'static str,
     pub files_items: &'static str,
     pub err_file_not_found: &'static str,
     pub err_file_denied: &'static str,
@@ -807,6 +811,10 @@ impl Strings {
             files_permissions: "Permissions",
             files_path: "Path",
             files_link_to: "link to {}",
+            files_binary: "Not a text file — nothing to show here",
+            files_image_too_large: "The image is too large to preview",
+            files_image_broken: "The image could not be decoded",
+            files_image_size: "{} × {}",
             files_items: "{} items",
             err_file_not_found: "No such file or folder",
             err_file_denied: "You do not have permission to do that on this server",
@@ -1165,6 +1173,10 @@ impl Strings {
             files_permissions: "Права",
             files_path: "Путь",
             files_link_to: "ссылка на {}",
+            files_binary: "Не текстовый файл — показывать нечего",
+            files_image_too_large: "Изображение слишком велико для просмотра",
+            files_image_broken: "Не удалось прочитать изображение",
+            files_image_size: "{} × {}",
             files_items: "объектов: {}",
             err_file_not_found: "Файл или папка не найдены",
             err_file_denied: "На этом сервере нет прав на это действие",
@@ -1560,6 +1572,10 @@ pub fn apply(window: &AppWindow, strings: &Strings) {
     global.set_files_permissions(strings.files_permissions.into());
     global.set_files_path(strings.files_path.into());
     global.set_files_link_to(strings.files_link_to.into());
+    global.set_files_binary(strings.files_binary.into());
+    global.set_files_image_too_large(strings.files_image_too_large.into());
+    global.set_files_image_broken(strings.files_image_broken.into());
+    global.set_files_image_size(strings.files_image_size.into());
     global.set_files_items(strings.files_items.into());
     global.set_err_file_not_found(strings.err_file_not_found.into());
     global.set_err_file_denied(strings.err_file_denied.into());

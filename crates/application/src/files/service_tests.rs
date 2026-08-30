@@ -73,6 +73,26 @@ impl FileBrowser for SpyBrowser {
             .ok_or_else(|| FileError::NotFound(path.to_owned()))
     }
 
+    async fn read_bytes(
+        &self,
+        _: &Server,
+        path: &str,
+        _: u64,
+    ) -> Result<vds_domain::ports::FileBytes, FileError> {
+        self.record("read", path);
+        let text = self
+            .files
+            .lock()
+            .get(path)
+            .cloned()
+            .ok_or_else(|| FileError::NotFound(path.to_owned()))?;
+        Ok(vds_domain::ports::FileBytes {
+            size_bytes: text.len() as u64,
+            truncated: false,
+            bytes: text.into_bytes(),
+        })
+    }
+
     async fn read(&self, _: &Server, path: &str, _: u64) -> Result<FileContents, FileError> {
         self.record("read", path);
         let text = self

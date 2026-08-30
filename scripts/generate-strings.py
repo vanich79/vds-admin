@@ -499,6 +499,15 @@ ENTRIES = [
     ("files_permissions", "Permissions", "Права"),
     ("files_path", "Path", "Путь"),
     ("files_link_to", "link to {}", "ссылка на {}"),
+    # A preview says what a file is when it cannot show it, because "4 MB, not text" is a
+    # useful answer and a window full of mojibake is not.
+    ("files_binary", "Not a text file — nothing to show here",
+     "Не текстовый файл — показывать нечего"),
+    ("files_image_too_large", "The image is too large to preview",
+     "Изображение слишком велико для просмотра"),
+    ("files_image_broken", "The image could not be decoded",
+     "Не удалось прочитать изображение"),
+    ("files_image_size", "{} × {}", "{} × {}"),
     ("files_items", "{} items", "объектов: {}"),
 
     # Stable codes from `FileError::kind`, translated here because a formatted English

@@ -530,7 +530,7 @@ fn fill(pattern: &str, value: &str) -> String {
     }
 }
 
-fn fill2(pattern: &str, first: &str, second: &str) -> String {
+pub fn fill2(pattern: &str, first: &str, second: &str) -> String {
     fill(&fill(pattern, first), second)
 }
 

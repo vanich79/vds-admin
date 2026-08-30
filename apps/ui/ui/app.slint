@@ -205,6 +205,11 @@ export component AppWindow inherits Window {
     in property <string> open-file-path;
     in property <string> open-file-info;
     in property <bool> open-file-truncated: false;
+    /// What the file turned out to be: `text`, `image` or `binary`.
+    in property <string> open-file-kind;
+    in property <image> open-file-image;
+    in property <bool> open-file-has-image: false;
+    in property <string> open-file-message;
     in-out property <string> open-file-text;
     /// What was last read from or written to the server. The editor compares against it
     /// to know whether there is anything to save.
@@ -419,6 +424,10 @@ export component AppWindow inherits Window {
                     file-path: root.open-file-path;
                     file-info: root.open-file-info;
                     file-truncated: root.open-file-truncated;
+                    file-kind: root.open-file-kind;
+                    file-image: root.open-file-image;
+                    file-has-image: root.open-file-has-image;
+                    file-message: root.open-file-message;
                     file-text <=> root.open-file-text;
                     file-saved-text: root.open-file-saved-text;
                     back => { root.showing-files = false; }

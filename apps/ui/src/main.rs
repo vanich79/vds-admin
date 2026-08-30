@@ -51,6 +51,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use vds_application::config::{Configuration, Theme as ConfiguredTheme};
 use vds_application::files;
+use vds_application::files::Preview;
 use vds_application::provisioning::{
     ConnectionEdit, NewConnection, NewServer, NewWebsite, ServerEdit,
 };
@@ -1270,7 +1271,7 @@ async fn worker(
                 open_file = None;
                 push(&window, move |window| {
                     window.set_files_server_name(name.into());
-                    window.set_open_file_path(SharedString::new());
+                    clear_preview(&window);
                     window.set_files_error(SharedString::new());
                     window.set_files_busy(true);
                     window.set_showing_files(true);
@@ -1304,7 +1305,7 @@ async fn worker(
                 let Some(id) = open_server else { continue };
                 open_file = None;
                 push(&window, |window| {
-                    window.set_open_file_path(SharedString::new());
+                    clear_preview(&window);
                     window.set_files_busy(true);
                 });
                 // Only a listing that succeeded moves us: a failed navigation must leave
@@ -1336,20 +1337,15 @@ async fn worker(
                     window.set_files_busy(true);
                     window.set_files_error(SharedString::new());
                 });
-                match application.files.read(id, &path).await {
-                    Ok(contents) => {
-                        open_file = Some(path.clone());
-                        let info = file_info(&contents);
-                        push(&window, move |window| {
-                            window.set_open_file_path(path.into());
-                            window.set_open_file_info(info.into());
-                            window.set_open_file_truncated(contents.truncated);
-                            window.set_open_file_text(contents.text.clone().into());
-                            // The saved copy is what "has this changed" is measured
-                            // against, so it is set from the same read.
-                            window.set_open_file_saved_text(contents.text.into());
-                            window.set_files_busy(false);
-                        });
+
+                // One fetch answers everything: picture, text, or neither. Which of the
+                // three it is comes from the bytes, not from the file's name.
+                match application.files.open(id, &path).await {
+                    Ok(preview) => {
+                        // Only text is editable, so only text is remembered as open. A
+                        // save while a picture is on screen would have nothing to save.
+                        open_file = matches!(preview, Preview::Text(_)).then(|| path.clone());
+                        show_preview(&window, path, preview);
                     }
                     Err(error) => {
                         let message = view_model::describe_file_error(&error);
@@ -1392,9 +1388,7 @@ async fn worker(
                 let Some(id) = open_server else { continue };
                 open_file = None;
                 push(&window, |window| {
-                    window.set_open_file_path(SharedString::new());
-                    window.set_open_file_text(SharedString::new());
-                    window.set_open_file_saved_text(SharedString::new());
+                    clear_preview(&window);
                     window.set_files_busy(true);
                 });
                 show_listing(&application, &window, id, &browse_path).await;
@@ -1446,6 +1440,107 @@ async fn worker(
     }
 }
 
+/// Puts the browser back on the listing, with nothing open.
+fn clear_preview(window: &AppWindow) {
+    window.set_open_file_path(SharedString::new());
+    window.set_open_file_kind(SharedString::new());
+    window.set_open_file_text(SharedString::new());
+    window.set_open_file_saved_text(SharedString::new());
+    window.set_open_file_message(SharedString::new());
+    window.set_open_file_has_image(false);
+    window.set_open_file_truncated(false);
+}
+
+/// Shows whatever was found at a path.
+///
+/// Everything here runs on the UI thread, because an image cannot be built anywhere else
+/// (see `payload`). The worker hands over bytes; the pixels are made at the last moment.
+fn show_preview(window: &Weak<AppWindow>, path: String, preview: Preview) {
+    let strings = i18n::strings();
+    let kind = preview.kind();
+    let size = format::bytes(preview.size_bytes() as f64);
+
+    match preview {
+        Preview::Text(contents) => {
+            let info = if contents.truncated {
+                format!("{size} \u{b7} {}", strings.files_read_only)
+            } else {
+                size
+            };
+            push(window, move |window| {
+                window.set_open_file_kind(kind.into());
+                window.set_open_file_path(path.into());
+                window.set_open_file_info(info.into());
+                window.set_open_file_truncated(contents.truncated);
+                window.set_open_file_text(contents.text.clone().into());
+                // The saved copy is what "has this changed" is measured against, so it
+                // is set from the same read.
+                window.set_open_file_saved_text(contents.text.into());
+                window.set_files_busy(false);
+            });
+        }
+
+        Preview::Image(image) => {
+            // Truncated bytes will not decode, and saying so is better than an image
+            // widget that silently shows nothing.
+            let too_large = image.truncated;
+            let format_name = image.format;
+            push(window, move |window| {
+                window.set_open_file_kind(kind.into());
+                window.set_open_file_path(path.into());
+                window.set_open_file_truncated(false);
+                window.set_open_file_text(SharedString::new());
+                window.set_open_file_saved_text(SharedString::new());
+
+                let decoded = (!too_large)
+                    .then(|| payload::decode_preview(&image.bytes))
+                    .flatten();
+
+                match decoded {
+                    Some((decoded, width, height)) => {
+                        let dimensions = view_model::fill2(
+                            strings.files_image_size,
+                            &width.to_string(),
+                            &height.to_string(),
+                        );
+                        window.set_open_file_has_image(true);
+                        window.set_open_file_image(decoded);
+                        window.set_open_file_info(
+                            format!("{format_name} \u{b7} {dimensions} \u{b7} {size}").into(),
+                        );
+                        window.set_open_file_message(SharedString::new());
+                    }
+                    None => {
+                        window.set_open_file_has_image(false);
+                        window.set_open_file_info(size.into());
+                        window.set_open_file_message(
+                            if too_large {
+                                strings.files_image_too_large
+                            } else {
+                                strings.files_image_broken
+                            }
+                            .into(),
+                        );
+                    }
+                }
+                window.set_files_busy(false);
+            });
+        }
+
+        Preview::Binary { .. } => push(window, move |window| {
+            window.set_open_file_kind(kind.into());
+            window.set_open_file_path(path.into());
+            window.set_open_file_info(size.clone().into());
+            window.set_open_file_message(size.into());
+            window.set_open_file_truncated(false);
+            window.set_open_file_has_image(false);
+            window.set_open_file_text(SharedString::new());
+            window.set_open_file_saved_text(SharedString::new());
+            window.set_files_busy(false);
+        }),
+    }
+}
+
 /// Lists one directory and shows it, returning the path that was actually read.
 ///
 /// `None` on failure, which is what keeps a failed navigation from moving the browser
@@ -1489,17 +1584,6 @@ async fn show_listing(
             });
             None
         }
-    }
-}
-
-/// The line under an open file's name: its size, and whether all of it is here.
-fn file_info(contents: &vds_domain::ports::FileContents) -> String {
-    let strings = i18n::strings();
-    let size = format::bytes(contents.size_bytes as f64);
-    if contents.truncated {
-        format!("{size} · {}", strings.files_read_only)
-    } else {
-        size
     }
 }
 

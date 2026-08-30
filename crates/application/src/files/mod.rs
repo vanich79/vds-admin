@@ -26,8 +26,10 @@ use vds_domain::ports::{
 };
 use vds_domain::server::Server;
 
+mod preview;
 mod roots;
 
+pub use preview::{ImageFile, MAX_IMAGE_BYTES, MAX_TEXT_BYTES, Preview, image_format, read_budget};
 pub use roots::{
     APACHE_CONFIG_DIRS, NGINX_CONFIG_DIRS, SiteRoot, parse_apache_roots, parse_nginx_roots,
 };
@@ -78,6 +80,22 @@ impl FileService {
         self.browser
             .read(&server, &normalise(path), DEFAULT_MAX_READ_BYTES)
             .await
+    }
+
+    /// Opens a file, whatever it turns out to be.
+    ///
+    /// One round trip decides everything: a picture is previewed, text is edited, and
+    /// anything else is reported by size. The alternative — asking what kind of file it
+    /// is and then fetching it — is two round trips to answer a question the bytes
+    /// already answer.
+    pub async fn open(&self, server_id: ServerId, path: &str) -> Result<Preview, FileError> {
+        let server = self.server(server_id).await?;
+        let path = normalise(path);
+        // The path picks the budget and nothing else; what the file *is* comes from the
+        // bytes that arrive.
+        let budget = preview::read_budget(&path);
+        let raw = self.browser.read_bytes(&server, &path, budget).await?;
+        Ok(preview::classify(raw, &path))
     }
 
     /// Replaces a file's contents.

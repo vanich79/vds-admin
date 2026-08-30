@@ -21,7 +21,8 @@
 //! confidently wrong listing.
 
 use vds_domain::ports::{
-    Command, CommandOutput, DirectoryEntry, EntryKind, FileContents, FileError, shell_quote,
+    Command, CommandOutput, DirectoryEntry, EntryKind, FileBytes, FileContents, FileError,
+    shell_quote,
 };
 
 /// Lists one directory.
@@ -197,12 +198,15 @@ fn parse_entry(line: &str) -> Option<DirectoryEntry> {
     })
 }
 
-/// Turns the read command's output into file contents.
-pub fn parse_read(
+/// Turns the read command's output into raw bytes.
+///
+/// The general form. [`parse_read`] is this plus the decision that what came back is
+/// text — a decision that has to be made *after* the bytes exist, not from a filename.
+pub fn parse_read_bytes(
     output: &CommandOutput,
     path: &str,
     max_bytes: u64,
-) -> Result<FileContents, FileError> {
+) -> Result<FileBytes, FileError> {
     let text = output.stdout.trim();
 
     if text.contains("__VDS_MISSING__") {
@@ -220,41 +224,28 @@ pub fn parse_read(
         .ok_or_else(|| FileError::Malformed("the read did not complete".to_owned()))?;
 
     let size_bytes: u64 = header.trim().parse().unwrap_or(0);
-    let bytes = base64_decode(&body.replace(['\n', '\r'], ""))
+    let mut bytes = base64_decode(&body.replace(['\n', '\r'], ""))
         .ok_or_else(|| FileError::Malformed("the file did not arrive intact".to_owned()))?;
 
     let truncated = size_bytes > max_bytes;
+    // The extra byte was requested only to detect truncation; it is not part of what the
+    // caller asked for.
+    bytes.truncate(max_bytes as usize);
 
-    // Decided on real bytes rather than guessed: a binary shown as text is unreadable,
-    // and saving it back would corrupt it.
-    let mut text = match String::from_utf8(bytes) {
-        Ok(text) => text,
-        Err(error) => {
-            // `head -c` counts bytes, so it can cut a multi-byte character in half. When
-            // the tail was cut anyway, an incomplete *final* character is expected rather
-            // than evidence of a binary file; anything invalid earlier is not.
-            let valid = error.utf8_error().valid_up_to();
-            let bytes = error.into_bytes();
-            if truncated && bytes.len() - valid < 4 {
-                String::from_utf8_lossy(&bytes[..valid]).into_owned()
-            } else {
-                return Err(FileError::NotText(path.to_owned()));
-            }
-        }
-    };
-    if text.contains('\0') {
-        return Err(FileError::NotText(path.to_owned()));
-    }
-
-    // The extra byte was requested only to detect truncation; it must not reach the
-    // editor. `pop` removes whole characters, so this cannot split one.
-    while truncated && text.len() > max_bytes as usize && text.pop().is_some() {}
-
-    Ok(FileContents {
-        text,
+    Ok(FileBytes {
+        bytes,
         truncated,
         size_bytes,
     })
+}
+
+/// Turns the read command's output into file contents, if it is text at all.
+pub fn parse_read(
+    output: &CommandOutput,
+    path: &str,
+    max_bytes: u64,
+) -> Result<FileContents, FileError> {
+    parse_read_bytes(output, path, max_bytes)?.into_text(path)
 }
 
 /// Reads the outcome of a write, delete or mkdir.

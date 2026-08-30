@@ -104,6 +104,94 @@ pub struct FileContents {
     pub size_bytes: u64,
 }
 
+/// A file's raw bytes, and whether they are all of it.
+///
+/// Separate from [`FileContents`] because the decision "is this text" is made *from*
+/// these bytes rather than before them. A preview that guessed from the file's extension
+/// would show a renamed executable as a picture and a `.txt` full of nulls as prose.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileBytes {
+    pub bytes: Vec<u8>,
+    /// True when the file was longer than the limit and this is only the beginning.
+    pub truncated: bool,
+    /// Total size on disk, which may exceed what was read.
+    pub size_bytes: u64,
+}
+
+impl FileBytes {
+    /// Interprets the bytes as text, or refuses.
+    ///
+    /// The decision lives here rather than in a transport because it is about the file,
+    /// not about how it was fetched: the same bytes are text or they are not, whether
+    /// they came over SSH, from an agent, or from a local disk. A binary shown as text is
+    /// unreadable, and saving it back would corrupt it.
+    pub fn into_text(self, path: &str) -> Result<FileContents, FileError> {
+        let FileBytes {
+            bytes,
+            truncated,
+            size_bytes,
+        } = self;
+
+        let text = match String::from_utf8(bytes) {
+            Ok(text) => text,
+            Err(error) => {
+                // A read capped at a byte count can cut a multi-byte character in half.
+                // When the tail was cut anyway, an incomplete *final* character is
+                // expected rather than evidence of a binary file; anything invalid
+                // earlier is not.
+                let valid = error.utf8_error().valid_up_to();
+                let bytes = error.into_bytes();
+                // `valid_up_to` cannot exceed the length, but saying so with `get` costs
+                // nothing and leaves no slice that a future edit could make panic.
+                match bytes.get(..valid) {
+                    Some(prefix) if truncated && bytes.len() - valid < 4 => {
+                        String::from_utf8_lossy(prefix).into_owned()
+                    }
+                    _ => return Err(FileError::NotText(path.to_owned())),
+                }
+            }
+        };
+        if !looks_like_text(&text) {
+            return Err(FileError::NotText(path.to_owned()));
+        }
+
+        Ok(FileContents {
+            text,
+            truncated,
+            size_bytes,
+        })
+    }
+}
+
+/// Whether decoded text reads as text, rather than as a binary that happened to decode.
+///
+/// Valid UTF-8 is not the same as text. The first bytes of an ELF executable and of a zip
+/// archive both decode cleanly — `PK` and control characters are legal UTF-8 — so a check
+/// that stopped there would offer an editor for `/bin/ls`.
+///
+/// Two signals, both of them what `file(1)` and `git` use: a null byte anywhere, and a
+/// high proportion of control characters. Tab, newline and carriage return are excluded
+/// because they are exactly the control characters that text is made of.
+fn looks_like_text(text: &str) -> bool {
+    if text.contains('\0') {
+        return false;
+    }
+
+    // The beginning is enough to decide, and sampling keeps this cheap on a megabyte.
+    let sample: Vec<char> = text.chars().take(8192).collect();
+    if sample.is_empty() {
+        return true;
+    }
+    let control = sample
+        .iter()
+        .filter(|c| c.is_control() && !matches!(c, '\t' | '\n' | '\r'))
+        .count();
+
+    // One in ten. A text file with that many control characters is not one anybody
+    // wants in an editor, whatever it technically decodes to.
+    control * 10 <= sample.len()
+}
+
 /// Why a file operation failed.
 ///
 /// Distinct from [`TransportError`] because these are conditions on the far side that a
@@ -161,6 +249,17 @@ pub trait FileBrowser: Send + Sync {
     /// Lists one directory. Not recursive: a recursive listing of `/` is a denial of
     /// service against the machine being administered.
     async fn list(&self, server: &Server, path: &str) -> Result<Vec<DirectoryEntry>, FileError>;
+
+    /// Reads a file's bytes, up to `max_bytes`.
+    ///
+    /// The general form. [`read`](Self::read) is this plus the decision that what came
+    /// back is text; a caller that wants to look at an image needs the bytes themselves.
+    async fn read_bytes(
+        &self,
+        server: &Server,
+        path: &str,
+        max_bytes: u64,
+    ) -> Result<FileBytes, FileError>;
 
     /// Reads a file as text, up to `max_bytes`.
     async fn read(
@@ -233,5 +332,83 @@ mod tests {
         codes.sort_unstable();
         codes.dedup();
         assert_eq!(codes.len(), count, "two failures share a code");
+    }
+
+    #[test]
+    fn a_binary_that_happens_to_decode_is_still_not_text() {
+        // The first bytes of an ELF executable and of a zip archive are valid UTF-8, so
+        // a check that stopped at "does it decode" would offer an editor for /bin/ls.
+        let cases: [(&[u8], &str); 2] = [
+            (&[0x7f, b'E', b'L', b'F', 0x02, 0x01, 0x01, 0x00], "/bin/ls"),
+            (b"PK\x03\x04nonsense\x01more", "/tmp/a.zip"),
+        ];
+        for (bytes, path) in cases {
+            let raw = FileBytes {
+                bytes: bytes.to_vec(),
+                truncated: false,
+                size_bytes: bytes.len() as u64,
+            };
+            assert_eq!(
+                raw.into_text(path).expect_err("must refuse").kind(),
+                "not_text",
+                "for {path}"
+            );
+        }
+    }
+
+    #[test]
+    fn ordinary_text_is_not_mistaken_for_a_binary() {
+        // Tab, newline and carriage return are what text is made of, so they must not
+        // count towards the control-character signal.
+        let source = "server {\n\troot /srv/x;\r\n}\n";
+        let raw = FileBytes {
+            bytes: source.as_bytes().to_vec(),
+            truncated: false,
+            size_bytes: source.len() as u64,
+        };
+        assert_eq!(
+            raw.into_text("/etc/nginx/x.conf").expect("is text").text,
+            source
+        );
+    }
+
+    #[test]
+    fn an_empty_file_is_text() {
+        // It is also the file someone just created from the New file button, and
+        // refusing to open it would be absurd.
+        let raw = FileBytes {
+            bytes: Vec::new(),
+            truncated: false,
+            size_bytes: 0,
+        };
+        assert_eq!(raw.into_text("/tmp/new").expect("is text").text, "");
+    }
+
+    #[test]
+    fn a_character_cut_in_half_by_the_size_limit_is_forgiven_but_only_at_the_end() {
+        // A read capped at a byte count can split a multi-byte character. That is
+        // expected when the tail was cut; the same damage in the middle is not.
+        let mut bytes = "конфиг".as_bytes().to_vec();
+        bytes.pop();
+        let truncated = FileBytes {
+            bytes: bytes.clone(),
+            truncated: true,
+            size_bytes: 9_000,
+        };
+        assert_eq!(
+            truncated.into_text("/tmp/x").expect("is text").text,
+            "конфи"
+        );
+
+        // The same bytes without the truncation flag are simply damaged.
+        let damaged = FileBytes {
+            bytes,
+            truncated: false,
+            size_bytes: 11,
+        };
+        assert_eq!(
+            damaged.into_text("/tmp/x").expect_err("must refuse").kind(),
+            "not_text"
+        );
     }
 }

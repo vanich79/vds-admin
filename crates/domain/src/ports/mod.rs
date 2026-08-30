@@ -24,7 +24,8 @@ pub use analytics::{AnalyticsProvider, AnalyticsQuery, ProviderError, ProviderHe
 pub use clock::{Clock, FixedClock, SystemClock};
 pub use events::{EventPublisher, NullEventPublisher, RecordingEventPublisher};
 pub use files::{
-    DEFAULT_MAX_READ_BYTES, DirectoryEntry, EntryKind, FileBrowser, FileContents, FileError,
+    DEFAULT_MAX_READ_BYTES, DirectoryEntry, EntryKind, FileBrowser, FileBytes, FileContents,
+    FileError,
 };
 pub use notification::{NotificationCapabilities, NotificationError, NotificationProvider};
 pub use repositories::{

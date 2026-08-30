@@ -30,6 +30,33 @@ thread_local! {
     static THUMBNAILS: RefCell<ThumbnailCache> = RefCell::new(ThumbnailCache::new());
 }
 
+/// Decodes a previewed file into an image, on the UI thread.
+///
+/// Not cached: a preview is opened deliberately, one at a time, and holding the last
+/// eight megabytes of decoded pixels for a file the user has closed buys nothing.
+///
+/// Returns the image and its dimensions, or `None` when the bytes do not decode — a
+/// truncated download, or a file whose signature was right and whose contents were not.
+/// A malformed image must not take the window down.
+pub fn decode_preview(bytes: &[u8]) -> Option<(Image, u32, u32)> {
+    let decoded = match image::load_from_memory(bytes) {
+        Ok(decoded) => decoded,
+        Err(error) => {
+            tracing::debug!(%error, "could not decode a previewed image");
+            return None;
+        }
+    };
+
+    let rgba = decoded.to_rgba8();
+    let (width, height) = (rgba.width(), rgba.height());
+    let buffer = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(
+        rgba.as_raw(),
+        width,
+        height,
+    );
+    Some((Image::from_rgba8(buffer), width, height))
+}
+
 /// Loads a thumbnail through the UI thread's cache.
 pub fn load_thumbnail(directory: &Path, name: &str) -> Option<Image> {
     THUMBNAILS.with(|cache| cache.borrow_mut().load(directory, name))
@@ -416,5 +443,64 @@ mod tests {
         let chart = ChartPayload::new("CPU", ChartGeometry::default()).into_view();
         assert!(!chart.has_data);
         assert!(!chart.empty_message.is_empty());
+    }
+
+    /// Encodes a tiny image in one of the formats the application claims to handle.
+    fn encoded(format: image::ImageFormat) -> Vec<u8> {
+        let picture = image::DynamicImage::ImageRgba8(image::RgbaImage::from_fn(4, 4, |x, y| {
+            image::Rgba([x as u8 * 60, y as u8 * 60, 128, 255])
+        }));
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        picture
+            .write_to(&mut bytes, format)
+            .expect("the encoder is enabled for this format");
+        bytes.into_inner()
+    }
+
+    #[test]
+    fn every_format_the_application_recognises_is_one_it_can_decode() {
+        // The two lists live in different crates: `vds_application::files::image_format`
+        // decides what counts as a picture, and this crate's decoder has to be able to
+        // read whatever that says. If they ever drift, a clear "not a text file" turns
+        // into a broken image, which is worse.
+        let formats = [
+            (image::ImageFormat::Png, "png"),
+            (image::ImageFormat::Jpeg, "jpeg"),
+            (image::ImageFormat::Gif, "gif"),
+            (image::ImageFormat::Bmp, "bmp"),
+            (image::ImageFormat::Ico, "ico"),
+        ];
+
+        for (format, expected) in formats {
+            let bytes = encoded(format);
+
+            assert_eq!(
+                vds_application::files::image_format(&bytes),
+                Some(expected),
+                "{expected} was encoded but not recognised"
+            );
+            let (_, width, height) = decode_preview(&bytes)
+                .unwrap_or_else(|| panic!("{expected} was recognised but would not decode"));
+            assert_eq!((width, height), (4, 4), "for {expected}");
+        }
+
+        // WebP is decode-only in this crate, so it cannot be round-tripped. Asking the
+        // decoder directly still proves the feature is switched on, which is the thing
+        // that would otherwise silently stop being true.
+        assert!(
+            image::ImageFormat::WebP.reading_enabled(),
+            "WebP is recognised as an image but the decoder for it is not compiled in"
+        );
+    }
+
+    #[test]
+    fn a_truncated_or_corrupt_image_fails_without_taking_the_window_down() {
+        // Half a PNG is exactly what arrives when a file is larger than the read budget.
+        let mut half = encoded(image::ImageFormat::Png);
+        half.truncate(half.len() / 2);
+
+        assert!(decode_preview(&half).is_none());
+        assert!(decode_preview(b"").is_none());
+        assert!(decode_preview(b"not an image at all").is_none());
     }
 }

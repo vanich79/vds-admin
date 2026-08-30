@@ -1602,6 +1602,13 @@ export component FilesScreen inherits VerticalLayout {
     in property <string> file-path;
     in property <string> file-info;
     in property <bool> file-truncated;
+    /// `text`, `image` or `binary` — decided from the bytes that arrived, never from the
+    /// file's name.
+    in property <string> file-kind;
+    in property <image> file-image;
+    in property <bool> file-has-image;
+    /// What to say when there is nothing to show: too large, or not a picture after all.
+    in property <string> file-message;
     // `in-out` because the editor writes into it as the user types; the saved copy beside
     // it is what makes "has this changed" answerable without asking the server.
     in-out property <string> file-text;
@@ -1659,7 +1666,7 @@ export component FilesScreen inherits VerticalLayout {
         }
         Rectangle { horizontal-stretch: 1; }
 
-        if root.file-path != "" && !root.file-truncated: FlatButton {
+        if root.file-kind == "text" && !root.file-truncated: FlatButton {
             text: root.dirty ? L.action_save : L.files_saved;
             primary: root.dirty;
             enabled: root.dirty && !root.busy;
@@ -1689,7 +1696,7 @@ export component FilesScreen inherits VerticalLayout {
     }
 
     // --- editor ---
-    if root.file-path != "": VerticalLayout {
+    if root.file-kind == "text": VerticalLayout {
         spacing: Theme.space-sm;
         vertical-stretch: 1;
 
@@ -1734,6 +1741,46 @@ export component FilesScreen inherits VerticalLayout {
                 }
             }
         }
+    }
+
+    // --- image preview ---
+    if root.file-kind == "image": VerticalLayout {
+        spacing: Theme.space-sm;
+        vertical-stretch: 1;
+
+        if root.file-has-image: Rectangle {
+            vertical-stretch: 1;
+            border-radius: Theme.radius-sm;
+            border-width: 1px;
+            border-color: Theme.border;
+            // A neutral ground rather than the surface colour: a PNG with transparency
+            // shown on the theme background reads as part of the interface.
+            background: Theme.dark ? #1a1a1a : #f0f0f0;
+            clip: true;
+
+            Image {
+                source: root.file-image;
+                // Never enlarged past its own size: an upscaled favicon is a blurry
+                // rectangle, and its actual size is the useful thing to see.
+                image-fit: contain;
+                width: parent.width - Theme.space-md * 2;
+                height: parent.height - Theme.space-md * 2;
+                x: Theme.space-md;
+                y: Theme.space-md;
+            }
+        }
+
+        if !root.file-has-image: EmptyState {
+            title: root.file-message;
+            vertical-stretch: 1;
+        }
+    }
+
+    // --- anything else ---
+    if root.file-kind == "binary": EmptyState {
+        title: L.files_binary;
+        detail: root.file-message;
+        vertical-stretch: 1;
     }
 
     // --- listing ---

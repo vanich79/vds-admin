@@ -67,6 +67,7 @@ async-trait.workspace = true
 chrono.workspace = true
 slint = { workspace = true, features = ["backend-winit", "renderer-software"] }
 copypasta = "0.10"
+image.workspace = true
 tokio = { workspace = true }
 tokio-util.workspace = true
 tracing.workspace = true
@@ -75,7 +76,6 @@ tracing.workspace = true
 slint-build.workspace = true
 
 [dev-dependencies]
-image.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread"] }
 vds-application = { workspace = true, features = ["testing"] }

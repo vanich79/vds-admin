@@ -16,8 +16,8 @@ use crate::session::SshCommandRunner;
 use async_trait::async_trait;
 use std::sync::Arc;
 use vds_domain::ports::{
-    Command, CommandOutput, CommandRunner, DirectoryEntry, FileBrowser, FileContents, FileError,
-    TransportError,
+    Command, CommandOutput, CommandRunner, DirectoryEntry, FileBrowser, FileBytes, FileContents,
+    FileError, TransportError,
 };
 use vds_domain::server::Server;
 use vds_infra_collectors::files;
@@ -51,6 +51,18 @@ impl FileBrowser for SshServerProbe {
     async fn list(&self, server: &Server, path: &str) -> Result<Vec<DirectoryEntry>, FileError> {
         let output = self.run_one(server, files::list_command(path)).await?;
         files::parse_listing(&output, path)
+    }
+
+    async fn read_bytes(
+        &self,
+        server: &Server,
+        path: &str,
+        max_bytes: u64,
+    ) -> Result<FileBytes, FileError> {
+        let output = self
+            .run_one(server, files::read_command(path, max_bytes))
+            .await?;
+        files::parse_read_bytes(&output, path, max_bytes)
     }
 
     async fn read(

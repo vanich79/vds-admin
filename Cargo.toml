@@ -71,7 +71,11 @@ hickory-resolver = { version = "0.26", default-features = false, features = ["sy
 hyper = { version = "1", features = ["http1", "server"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
 tower = { version = "0.5", features = ["util"] }
-image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+# The formats that turn up in a web root. Enabled explicitly rather than by default:
+# `image` otherwise pulls in decoders for scientific formats nobody serves.
+image = { version = "0.25", default-features = false, features = [
+    "png", "jpeg", "gif", "bmp", "webp", "ico",
+] }
 keyring = "4"
 notify-rust = "4"
 rand = "0.9"
