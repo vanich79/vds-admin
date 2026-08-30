@@ -167,7 +167,76 @@ pub enum TransportError {
     Protocol(String),
 }
 
+/// Why a collection failed, as a value rather than a sentence.
+///
+/// `TransportError`'s `Display` is written for a log: "authentication failed: could not
+/// read the private key" is accurate, English, and reaches the user's screen unchanged.
+/// Translating the *sentence* is impossible once it has been formatted, so the kind is
+/// carried alongside it and the presentation layer turns that into the user's language.
+/// The original text is kept as the detail, because "which key, exactly" is what makes a
+/// failure diagnosable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TransportErrorKind {
+    Connection,
+    Authentication,
+    HostKeyRejected,
+    Timeout,
+    Execution,
+    NotConnected,
+    MissingCredential,
+    Protocol,
+}
+
+impl TransportErrorKind {
+    /// The stable form written to the database.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            TransportErrorKind::Connection => "connection",
+            TransportErrorKind::Authentication => "authentication",
+            TransportErrorKind::HostKeyRejected => "host_key_rejected",
+            TransportErrorKind::Timeout => "timeout",
+            TransportErrorKind::Execution => "execution",
+            TransportErrorKind::NotConnected => "not_connected",
+            TransportErrorKind::MissingCredential => "missing_credential",
+            TransportErrorKind::Protocol => "protocol",
+        }
+    }
+
+    /// Parses [`TransportErrorKind::as_str`].
+    ///
+    /// An unknown code — written by a newer version — yields `None` rather than a wrong
+    /// kind, and the interface then falls back to showing the detail alone.
+    pub fn parse(raw: &str) -> Option<TransportErrorKind> {
+        match raw {
+            "connection" => Some(TransportErrorKind::Connection),
+            "authentication" => Some(TransportErrorKind::Authentication),
+            "host_key_rejected" => Some(TransportErrorKind::HostKeyRejected),
+            "timeout" => Some(TransportErrorKind::Timeout),
+            "execution" => Some(TransportErrorKind::Execution),
+            "not_connected" => Some(TransportErrorKind::NotConnected),
+            "missing_credential" => Some(TransportErrorKind::MissingCredential),
+            "protocol" => Some(TransportErrorKind::Protocol),
+            _ => None,
+        }
+    }
+}
+
 impl TransportError {
+    /// Which kind of failure this is, for translation and for reporting.
+    pub fn kind(&self) -> TransportErrorKind {
+        match self {
+            TransportError::Connection(_) => TransportErrorKind::Connection,
+            TransportError::Authentication(_) => TransportErrorKind::Authentication,
+            TransportError::HostKeyRejected(_) => TransportErrorKind::HostKeyRejected,
+            TransportError::Timeout { .. } => TransportErrorKind::Timeout,
+            TransportError::Execution(_) => TransportErrorKind::Execution,
+            TransportError::NotConnected => TransportErrorKind::NotConnected,
+            TransportError::MissingCredential(_) => TransportErrorKind::MissingCredential,
+            TransportError::Protocol(_) => TransportErrorKind::Protocol,
+        }
+    }
+
     /// Whether retrying could plausibly help.
     ///
     /// Authentication and host-key failures are configuration problems: retrying them on

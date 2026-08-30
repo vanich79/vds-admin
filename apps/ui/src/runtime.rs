@@ -600,6 +600,18 @@ pub fn auth_kind_at(index: i32) -> SshAuthKind {
     }
 }
 
+/// The reverse: which entry in the picker a stored method corresponds to.
+///
+/// Needed when a form is opened for editing — the dialog has to start on the method the
+/// server actually uses, not on the first option.
+pub fn auth_kind_index(kind: SshAuthKind) -> i32 {
+    match kind {
+        SshAuthKind::Password => 0,
+        SshAuthKind::PrivateKey => 1,
+        SshAuthKind::EncryptedPrivateKey => 2,
+    }
+}
+
 /// Parses a number a user typed, falling back when the field is empty or nonsense.
 ///
 /// A blank interval field means "leave it at the default", not "poll zero times a

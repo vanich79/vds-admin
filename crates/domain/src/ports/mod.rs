@@ -31,5 +31,5 @@ pub use screenshot::{ScreenshotError, ScreenshotProvider};
 pub use secrets::{Secret, SecretKind, SecretStore, SecretStoreError};
 pub use transport::{
     Capability, CollectError, Collector, CollectorOutput, Command, CommandOutput, CommandRunner,
-    SAMPLE_SEPARATOR, ServerProbe, TransportCapabilities, TransportError,
+    SAMPLE_SEPARATOR, ServerProbe, TransportCapabilities, TransportError, TransportErrorKind,
 };

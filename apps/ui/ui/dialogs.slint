@@ -241,6 +241,13 @@ component DialogFrame inherits Rectangle {
 export component AddServerDialog inherits Rectangle {
     in property <string> error;
     in property <bool> busy: false;
+    /// True when an existing server is being changed rather than a new one added.
+    ///
+    /// The only behavioural difference is the credential: when editing, an empty secret
+    /// field means "keep the stored one", so the placeholder says so and the field is no
+    /// longer required. Making the user re-paste a seven-line key to change a polling
+    /// interval is exactly the friction this feature exists to remove.
+    in property <bool> editing: false;
 
     // 0 = SSH, 1 = agent. Mirrored in `runtime::connection_mode_at`.
     in-out property <int> mode: 0;
@@ -269,7 +276,8 @@ export component AddServerDialog inherits Rectangle {
             alignment: center;
 
             DialogFrame {
-                title: L.servers_add;
+                title: root.editing ? L.servers_edit : L.servers_add;
+                confirm-text: root.editing ? L.action_save_changes : L.action_add;
                 subtitle: root.is-agent
                     ? L.dlg_agent_subtitle
                     : L.dlg_ssh_subtitle;
@@ -329,9 +337,11 @@ export component AddServerDialog inherits Rectangle {
 
                     Field {
                         label: root.auth-kind == 0 ? L.dlg_auth_password : L.dlg_auth_key;
-                        placeholder: root.auth-kind == 0
-                            ? L.dlg_ph_password
-                            : L.dlg_ph_key;
+                        // When editing, an empty field keeps the stored credential —
+                        // the placeholder has to say so, or it reads as "required".
+                        placeholder: root.editing
+                            ? L.dlg_ph_secret_kept
+                            : (root.auth-kind == 0 ? L.dlg_ph_password : L.dlg_ph_key);
                         // A password is one line and is masked; a key is many lines and
                         // is not. Two kinds of secret, two different controls.
                         secret: root.auth-kind == 0;
@@ -375,6 +385,8 @@ export component AddWebsiteDialog inherits Rectangle {
     in property <string> error;
     in property <bool> busy: false;
 
+    in property <bool> editing: false;
+
     in-out property <string> website-name;
     in-out property <string> url;
     in-out property <string> interval: "60";
@@ -392,7 +404,8 @@ export component AddWebsiteDialog inherits Rectangle {
             alignment: center;
 
             DialogFrame {
-                title: L.websites_add;
+                title: root.editing ? L.websites_edit : L.websites_add;
+                confirm-text: root.editing ? L.action_save_changes : L.action_add;
                 subtitle: L.dlg_website_subtitle;
                 error: root.error;
                 busy: root.busy;

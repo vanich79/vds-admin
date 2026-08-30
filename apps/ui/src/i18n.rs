@@ -405,6 +405,19 @@ pub struct Strings {
     pub wd_counter: &'static str,
     pub action_connect: &'static str,
     pub action_disconnect: &'static str,
+    pub servers_edit: &'static str,
+    pub websites_edit: &'static str,
+    pub action_edit: &'static str,
+    pub action_save_changes: &'static str,
+    pub dlg_ph_secret_kept: &'static str,
+    pub conn_auth: &'static str,
+    pub conn_host_key: &'static str,
+    pub conn_refused: &'static str,
+    pub conn_timeout: &'static str,
+    pub conn_command: &'static str,
+    pub conn_disconnected: &'static str,
+    pub conn_no_credential: &'static str,
+    pub conn_protocol: &'static str,
     pub err_counter_empty: &'static str,
     pub err_counter_malformed: &'static str,
     pub err_no_analytics_token: &'static str,
@@ -714,6 +727,19 @@ impl Strings {
             wd_counter: "Counter",
             action_connect: "Connect",
             action_disconnect: "Disconnect",
+            servers_edit: "Edit server",
+            websites_edit: "Edit website",
+            action_edit: "Edit",
+            action_save_changes: "Save",
+            dlg_ph_secret_kept: "Leave empty to keep the stored one",
+            conn_auth: "Authentication failed. Check the user name and the key or password.",
+            conn_host_key: "The server’s host key has changed. Verify the new fingerprint before reconnecting.",
+            conn_refused: "Could not connect. The server may be down, or a firewall is in the way.",
+            conn_timeout: "The server did not answer in time.",
+            conn_command: "A command did not run on the server.",
+            conn_disconnected: "The connection was lost.",
+            conn_no_credential: "The stored credential could not be read.",
+            conn_protocol: "The server answered in a way this version does not understand.",
             err_counter_empty: "Enter the counter number",
             err_counter_malformed: "A counter number is digits only — not a link",
             err_no_analytics_token: "Save the OAuth token in Settings first",
@@ -1023,6 +1049,19 @@ impl Strings {
             wd_counter: "Счётчик",
             action_connect: "Подключить",
             action_disconnect: "Отключить",
+            servers_edit: "Изменить сервер",
+            websites_edit: "Изменить сайт",
+            action_edit: "Изменить",
+            action_save_changes: "Сохранить",
+            dlg_ph_secret_kept: "Оставьте пустым, чтобы сохранить прежний",
+            conn_auth: "Аутентификация не удалась. Проверьте имя пользователя и ключ или пароль.",
+            conn_host_key: "Ключ хоста сервера изменился. Сверьте новый отпечаток, прежде чем подключаться.",
+            conn_refused: "Не удалось подключиться. Сервер выключен либо мешает межсетевой экран.",
+            conn_timeout: "Сервер не ответил вовремя.",
+            conn_command: "Команда на сервере не выполнилась.",
+            conn_disconnected: "Соединение потеряно.",
+            conn_no_credential: "Не удалось прочитать сохранённые учётные данные.",
+            conn_protocol: "Сервер ответил так, как эта версия не понимает.",
             err_counter_empty: "Укажите номер счётчика",
             err_counter_malformed: "Номер счётчика — только цифры, не ссылка",
             err_no_analytics_token: "Сначала сохраните OAuth-токен в настройках",
@@ -1369,6 +1408,19 @@ pub fn apply(window: &AppWindow, strings: &Strings) {
     global.set_wd_counter(strings.wd_counter.into());
     global.set_action_connect(strings.action_connect.into());
     global.set_action_disconnect(strings.action_disconnect.into());
+    global.set_servers_edit(strings.servers_edit.into());
+    global.set_websites_edit(strings.websites_edit.into());
+    global.set_action_edit(strings.action_edit.into());
+    global.set_action_save_changes(strings.action_save_changes.into());
+    global.set_dlg_ph_secret_kept(strings.dlg_ph_secret_kept.into());
+    global.set_conn_auth(strings.conn_auth.into());
+    global.set_conn_host_key(strings.conn_host_key.into());
+    global.set_conn_refused(strings.conn_refused.into());
+    global.set_conn_timeout(strings.conn_timeout.into());
+    global.set_conn_command(strings.conn_command.into());
+    global.set_conn_disconnected(strings.conn_disconnected.into());
+    global.set_conn_no_credential(strings.conn_no_credential.into());
+    global.set_conn_protocol(strings.conn_protocol.into());
     global.set_err_counter_empty(strings.err_counter_empty.into());
     global.set_err_counter_malformed(strings.err_counter_malformed.into());
     global.set_err_no_analytics_token(strings.err_no_analytics_token.into());

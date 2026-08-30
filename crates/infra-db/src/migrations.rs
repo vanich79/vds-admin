@@ -15,7 +15,7 @@ use crate::connection::Database;
 use vds_domain::ports::RepositoryError;
 
 /// The schema version this build expects.
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 
 /// One migration step.
 pub struct Migration {
@@ -28,12 +28,32 @@ pub struct Migration {
 }
 
 /// Every migration, in order.
-pub const MIGRATIONS: &[Migration] = &[Migration {
-    version: 1,
-    description: "initial schema",
-    destructive: false,
-    sql: V1,
-}];
+pub const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        description: "initial schema",
+        destructive: false,
+        sql: V1,
+    },
+    Migration {
+        version: 2,
+        description: "record why a collection failed, not just what it said",
+        destructive: false,
+        sql: V2,
+    },
+];
+
+/// Adds the failure kind beside the failure message.
+///
+/// `last_error` holds a sentence produced by `TransportError`'s `Display`, which is
+/// English and cannot be translated after the fact. The kind is a stable code the
+/// interface turns into the user's language, while the original text stays as the
+/// technical detail.
+///
+/// Nullable and added without a default: existing rows keep their message and gain no
+/// kind, which the interface already handles — it falls back to showing the detail alone.
+/// That is why this migration is not destructive and needs no backup.
+const V2: &str = "ALTER TABLE server_state ADD COLUMN last_error_kind TEXT;";
 
 /// The initial schema.
 ///
@@ -467,5 +487,82 @@ mod tests {
             .await
             .expect("readable");
         assert_eq!(server_id, None);
+    }
+
+    #[tokio::test]
+    async fn an_existing_database_is_upgraded_without_losing_its_rows() {
+        // The case that actually matters: this runs on a database that has been
+        // collecting for days. A migration that dropped and recreated the table would
+        // pass every other test here and lose the user's history.
+        let database = Database::unmigrated_in_memory().expect("opens");
+
+        // Bring it to v1 only, as an older build would have left it.
+        database
+            .call(|c| {
+                c.execute_batch(V1)?;
+                c.pragma_update(None, "user_version", 1)?;
+                Ok(())
+            })
+            .await
+            .expect("v1 applied");
+
+        database
+            .call(|c| {
+                c.execute(
+                    "INSERT INTO servers (id, name, host, port, connection_mode,
+                         connection_json, enabled, poll_interval_secs,
+                         offline_after_failures, timeout_secs, thresholds_json, tags_json,
+                         created_at)
+                     VALUES ('s1', 'web-01', '10.0.0.1', 22, 'ssh', '{}', 1, 30, 3, 20,
+                             '{}', '[]', 0)",
+                    [],
+                )?;
+                c.execute(
+                    "INSERT INTO server_state (server_id, status, consecutive_failures, last_error)
+                     VALUES ('s1', 'offline', 3, 'authentication failed: bad key')",
+                    [],
+                )?;
+                Ok(())
+            })
+            .await
+            .expect("rows inserted");
+
+        apply(&database).await.expect("migrates");
+
+        let (version, name, error, kind) = database
+            .call(|c| {
+                let version: u32 = c.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+                let name: String = c.query_row("SELECT name FROM servers", [], |r| r.get(0))?;
+                let error: Option<String> =
+                    c.query_row("SELECT last_error FROM server_state", [], |r| r.get(0))?;
+                let kind: Option<String> =
+                    c.query_row("SELECT last_error_kind FROM server_state", [], |r| r.get(0))?;
+                Ok((version, name, error, kind))
+            })
+            .await
+            .expect("read back");
+
+        assert_eq!(version, SCHEMA_VERSION);
+        assert_eq!(name, "web-01", "the server row was lost");
+        assert_eq!(
+            error.as_deref(),
+            Some("authentication failed: bad key"),
+            "the existing message was lost"
+        );
+        assert_eq!(kind, None, "an old row gains no kind, and that is fine");
+    }
+
+    #[tokio::test]
+    async fn migrating_twice_changes_nothing() {
+        // The registration pass and a restart both call this; it has to be idempotent.
+        let database = Database::open_in_memory().await.expect("opens");
+        apply(&database).await.expect("first");
+        apply(&database).await.expect("second");
+
+        let version: u32 = database
+            .call(|c| c.query_row("PRAGMA user_version", [], |r| r.get(0)))
+            .await
+            .expect("read");
+        assert_eq!(version, SCHEMA_VERSION);
     }
 }

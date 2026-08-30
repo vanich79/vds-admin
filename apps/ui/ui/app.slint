@@ -196,6 +196,30 @@ export component AppWindow inherits Window {
     // dialog closes when the creation succeeds, and stays open with an error when it
     // does not, so a rejected form never loses what was typed into it.
     in-out property <bool> showing-add-server: false;
+    /// True when the open dialog is changing an existing server, not adding one.
+    in-out property <bool> editing-server: false;
+    in-out property <bool> editing-website: false;
+
+    // The dialog is filled from these rather than from the detail payload directly: a
+    // dialog that wrote straight into the displayed record would show half-typed edits
+    // on the page behind it.
+    in-out property <string> form-server-name;
+    in-out property <string> form-host;
+    in-out property <string> form-port: "22";
+    in-out property <string> form-username: "root";
+    in-out property <string> form-interval: "30";
+    in-out property <int> form-mode: 0;
+    in-out property <int> form-auth-kind: 0;
+    in-out property <string> form-website-name;
+    in-out property <string> form-url;
+    in-out property <string> form-website-interval: "60";
+    in-out property <string> form-expected-status: "200";
+    in-out property <string> form-expected-text;
+
+    callback update-server(string, string, string, string, int, int, string, string, string, string, string);
+    callback update-website(string, string, string, string, string, string);
+    callback begin-edit-server(string);
+    callback begin-edit-website(string);
     in-out property <bool> showing-add-website: false;
     in property <string> dialog-error;
     in property <bool> dialog-busy: false;
@@ -353,6 +377,7 @@ export component AppWindow inherits Window {
                         root.showing-server-detail = false;
                         root.delete-server();
                     }
+                    edit-server => { root.begin-edit-server(root.server-detail.id); }
                 }
 
                 if root.page == 2 && !root.showing-website-detail: WebsitesScreen {
@@ -372,6 +397,7 @@ export component AppWindow inherits Window {
                     back => { root.showing-website-detail = false; }
                     period-changed(index) => { root.website-period-changed(index); }
                     refresh-screenshot => { root.refresh-screenshot(); }
+                    edit-website => { root.begin-edit-website(root.website-detail.id); }
                     analytics-counter: root.website-counter;
                     analytics-token-saved: root.analytics-token-saved;
                     analytics-error: root.analytics-error;
@@ -493,38 +519,83 @@ export component AppWindow inherits Window {
     if root.showing-add-server: add-server-dialog := AddServerDialog {
         error: root.dialog-error;
         busy: root.dialog-busy;
+        // One dialog for both jobs. The fields are the same; only the credential rule
+        // and the wording differ, and both hang off this flag.
+        editing: root.editing-server;
+
+        server-name: root.form-server-name;
+        host: root.form-host;
+        port: root.form-port;
+        username: root.form-username;
+        interval: root.form-interval;
+        mode: root.form-mode;
+        auth-kind: root.form-auth-kind;
 
         confirmed => {
-            root.create-server(
-                self.server-name,
-                self.host,
-                self.port,
-                self.mode,
-                self.auth-kind,
-                self.username,
-                self.secret,
-                self.passphrase,
-                self.agent-token,
-                self.interval,
-            );
+            if (root.editing-server) {
+                root.update-server(
+                    root.server-detail.id,
+                    self.server-name,
+                    self.host,
+                    self.port,
+                    self.mode,
+                    self.auth-kind,
+                    self.username,
+                    self.secret,
+                    self.passphrase,
+                    self.agent-token,
+                    self.interval,
+                );
+            } else {
+                root.create-server(
+                    self.server-name,
+                    self.host,
+                    self.port,
+                    self.mode,
+                    self.auth-kind,
+                    self.username,
+                    self.secret,
+                    self.passphrase,
+                    self.agent-token,
+                    self.interval,
+                );
+            }
         }
-        cancelled => { root.showing-add-server = false; }
+        cancelled => { root.showing-add-server = false; root.editing-server = false; }
     }
 
     if root.showing-add-website: add-website-dialog := AddWebsiteDialog {
         error: root.dialog-error;
         busy: root.dialog-busy;
+        editing: root.editing-website;
+
+        website-name: root.form-website-name;
+        url: root.form-url;
+        interval: root.form-website-interval;
+        expected-status: root.form-expected-status;
+        expected-text: root.form-expected-text;
 
         confirmed => {
-            root.create-website(
-                self.website-name,
-                self.url,
-                self.interval,
-                self.expected-status,
-                self.expected-text,
-            );
+            if (root.editing-website) {
+                root.update-website(
+                    root.website-detail.id,
+                    self.website-name,
+                    self.url,
+                    self.interval,
+                    self.expected-status,
+                    self.expected-text,
+                );
+            } else {
+                root.create-website(
+                    self.website-name,
+                    self.url,
+                    self.interval,
+                    self.expected-status,
+                    self.expected-text,
+                );
+            }
         }
-        cancelled => { root.showing-add-website = false; }
+        cancelled => { root.showing-add-website = false; root.editing-website = false; }
     }
 }
 

@@ -90,6 +90,91 @@ pub enum NewConnection {
     },
 }
 
+/// What the "edit server" form collected.
+///
+/// Separate from [`NewServer`] because of one field: the secret is optional. Changing a
+/// polling interval must not require re-pasting a seven-line private key, so `None`
+/// means "keep what is stored". That distinction does not exist when adding, and folding
+/// the two together would make it possible to create a server with no credential at all.
+#[derive(Clone)]
+pub struct ServerEdit {
+    pub name: String,
+    pub host: String,
+    pub port: u16,
+    pub connection: ConnectionEdit,
+    pub poll_interval_secs: u32,
+    pub enabled: bool,
+    pub tags: Vec<String>,
+}
+
+/// The mode-specific half of an edit. `None` secrets keep the stored ones.
+#[derive(Clone)]
+pub enum ConnectionEdit {
+    Ssh {
+        username: String,
+        auth_kind: SshAuthKind,
+        /// The password or private key. `None` keeps the stored one.
+        secret: Option<Secret>,
+        passphrase: Option<Secret>,
+    },
+    Agent {
+        port: u16,
+        /// `None` keeps the stored token.
+        token: Option<Secret>,
+    },
+}
+
+/// Prints the shape without the material; see [`NewConnection`]'s implementation.
+impl std::fmt::Debug for ServerEdit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ServerEdit")
+            .field("name", &self.name)
+            .field("host", &self.host)
+            .field("port", &self.port)
+            .field("connection", &self.connection)
+            .field("poll_interval_secs", &self.poll_interval_secs)
+            .field("enabled", &self.enabled)
+            .finish()
+    }
+}
+
+impl std::fmt::Debug for ConnectionEdit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ConnectionEdit::Ssh {
+                username,
+                auth_kind,
+                secret,
+                ..
+            } => f
+                .debug_struct("Ssh")
+                .field("username", username)
+                .field("auth_kind", auth_kind)
+                .field(
+                    "secret",
+                    &if secret.is_some() {
+                        "<replaced>"
+                    } else {
+                        "<kept>"
+                    },
+                )
+                .finish(),
+            ConnectionEdit::Agent { port, token } => f
+                .debug_struct("Agent")
+                .field("port", port)
+                .field(
+                    "token",
+                    &if token.is_some() {
+                        "<replaced>"
+                    } else {
+                        "<kept>"
+                    },
+                )
+                .finish(),
+        }
+    }
+}
+
 /// What the "add website" form collected.
 #[derive(Debug, Clone)]
 pub struct NewWebsite {
@@ -344,6 +429,117 @@ impl ProvisioningService {
     /// The entity goes first: a credential whose owner is already gone is unreachable,
     /// whereas a server whose credential has gone is a server that fails every poll with
     /// a confusing error.
+    /// Changes a server in place.
+    ///
+    /// The identifier is preserved, which is the entire point: it is what the metric
+    /// history, the incidents and the events are keyed by. Deleting and re-adding — the
+    /// only option before this existed — silently threw all of that away.
+    pub async fn update_server(
+        &self,
+        id: ServerId,
+        edit: ServerEdit,
+    ) -> Result<Server, ProvisioningError> {
+        let existing = self.servers.get(id).await?;
+        let reference = existing.connection.credential_ref();
+
+        // A credential is only replaced when one was typed. Keeping the handle rather
+        // than issuing a new one means an unchanged secret is never rewritten, and a
+        // failure below cannot leave the server pointing at a handle with nothing behind
+        // it.
+        let mut server = existing.clone();
+        server.name = edit.name.trim().to_owned();
+        server.host = edit.host.trim().to_owned();
+        server.port = edit.port;
+        server.poll_interval_secs = edit.poll_interval_secs;
+        server.enabled = edit.enabled;
+        server.tags = edit.tags;
+        server.connection = connection_from_edit(&edit.connection, reference);
+
+        server.validate()?;
+
+        // Changing the authentication method without supplying a new secret would leave
+        // the stored one under the wrong kind — a password read as a private key. Caught
+        // here rather than at the next collection.
+        if let (
+            ConnectionEdit::Ssh {
+                auth_kind, secret, ..
+            },
+            ConnectionSettings::Ssh(previous),
+        ) = (&edit.connection, &existing.connection)
+            && *auth_kind != previous.auth_kind
+            && secret.is_none()
+        {
+            return Err(ProvisioningError::MissingCredential);
+        }
+
+        // Likewise for a mode change: an agent token cannot be read as an SSH key.
+        if edit.connection.mode() != existing.connection.mode() && !edit.connection.carries_secret()
+        {
+            return Err(ProvisioningError::MissingCredential);
+        }
+
+        self.store_edited_credential(reference, &edit.connection, &existing)
+            .await?;
+
+        self.servers.save(&server).await?;
+
+        tracing::info!(server = %server.id, name = %server.name, "server updated");
+        Ok(server)
+    }
+
+    /// Writes whichever secrets the edit actually supplied.
+    async fn store_edited_credential(
+        &self,
+        reference: CredentialRef,
+        edit: &ConnectionEdit,
+        existing: &Server,
+    ) -> Result<(), ProvisioningError> {
+        match edit {
+            ConnectionEdit::Ssh {
+                auth_kind,
+                secret,
+                passphrase,
+                ..
+            } => {
+                if let Some(secret) = secret.clone() {
+                    let kind = match auth_kind {
+                        SshAuthKind::Password => SecretKind::SshPassword,
+                        SshAuthKind::PrivateKey | SshAuthKind::EncryptedPrivateKey => {
+                            SecretKind::SshPrivateKey
+                        }
+                    };
+                    self.secrets.store(reference, kind, secret).await?;
+                }
+                if let Some(passphrase) = passphrase.clone() {
+                    self.secrets
+                        .store(reference, SecretKind::SshKeyPassphrase, passphrase)
+                        .await?;
+                }
+                // Moving away from an encrypted key leaves a passphrase behind that
+                // nothing will ever read. Removed so the keystore does not accumulate
+                // secrets whose owner has forgotten them.
+                if *auth_kind != SshAuthKind::EncryptedPrivateKey
+                    && let Err(err) = self
+                        .secrets
+                        .delete(reference, SecretKind::SshKeyPassphrase)
+                        .await
+                {
+                    tracing::debug!(error = %err, "no passphrase to remove");
+                }
+                let _ = existing;
+                Ok(())
+            }
+            ConnectionEdit::Agent { token, .. } => {
+                if let Some(token) = token.clone() {
+                    self.secrets
+                        .store(reference, SecretKind::AgentToken, token)
+                        .await?;
+                }
+                Ok(())
+            }
+        }
+    }
+
     pub async fn delete_server(&self, id: ServerId) -> Result<(), ProvisioningError> {
         let reference = self
             .servers
@@ -383,6 +579,43 @@ impl ProvisioningService {
         self.websites.save(&website).await?;
 
         tracing::info!(website = %website.id, name = %website.name, "website added");
+        Ok(website)
+    }
+
+    /// Changes a website in place, keeping its identifier.
+    ///
+    /// That identifier is what the availability history, the analytics integration and
+    /// the screenshot are keyed by — so fixing a typo in a URL no longer costs all three.
+    pub async fn update_website(
+        &self,
+        id: WebsiteId,
+        edit: NewWebsite,
+    ) -> Result<Website, ProvisioningError> {
+        let existing = self.websites.get(id).await?;
+
+        // Built through the constructor so the URL goes through the same normalisation
+        // and validation as a new one — a scheme-less address gains https:// here too.
+        let mut website = Website::new(
+            edit.name.trim(),
+            // The same normalisation creation uses, so a scheme-less address gains
+            // https:// whichever way it was entered.
+            normalise_url(&edit.url),
+            existing.created_at,
+        );
+        website.id = existing.id;
+        website.server_id = edit.server_id;
+        website.poll_interval_secs = edit.poll_interval_secs;
+        website.enabled = existing.enabled;
+        website.expectation.status = edit.expected_status;
+        website.expectation.body_contains = edit
+            .expected_text
+            .map(|text| text.trim().to_owned())
+            .filter(|text| !text.is_empty());
+
+        website.validate()?;
+        self.websites.save(&website).await?;
+
+        tracing::info!(website = %website.id, name = %website.name, "website updated");
         Ok(website)
     }
 
@@ -437,6 +670,45 @@ impl ProvisioningService {
                     .await?;
                 Ok(())
             }
+        }
+    }
+}
+
+/// The same, for an edit: the credential handle is the one the server already has.
+fn connection_from_edit(edit: &ConnectionEdit, reference: CredentialRef) -> ConnectionSettings {
+    match edit {
+        ConnectionEdit::Ssh {
+            username,
+            auth_kind,
+            ..
+        } => ConnectionSettings::Ssh(SshSettings {
+            username: username.trim().to_owned(),
+            auth_kind: *auth_kind,
+            credential_ref: reference,
+        }),
+        ConnectionEdit::Agent { port, .. } => ConnectionSettings::Agent(AgentSettings {
+            port: *port,
+            credential_ref: reference,
+            // Cleared deliberately: the address or the port may now point at a different
+            // machine, and silently keeping the old pin would defeat the check.
+            certificate_fingerprint: None,
+        }),
+    }
+}
+
+impl ConnectionEdit {
+    fn mode(&self) -> vds_domain::server::ConnectionMode {
+        match self {
+            ConnectionEdit::Ssh { .. } => vds_domain::server::ConnectionMode::Ssh,
+            ConnectionEdit::Agent { .. } => vds_domain::server::ConnectionMode::Agent,
+        }
+    }
+
+    /// Whether this edit supplies a secret rather than keeping the stored one.
+    fn carries_secret(&self) -> bool {
+        match self {
+            ConnectionEdit::Ssh { secret, .. } => secret.is_some(),
+            ConnectionEdit::Agent { token, .. } => token.is_some(),
         }
     }
 }
@@ -1172,5 +1444,267 @@ mod tests {
                 .await
                 .is_err()
         );
+    }
+
+    // --- editing ---------------------------------------------------------------------
+
+    fn ssh_edit(name: &str) -> ServerEdit {
+        ServerEdit {
+            name: name.to_owned(),
+            host: "10.0.0.1".to_owned(),
+            port: 22,
+            connection: ConnectionEdit::Ssh {
+                // Matches what  creates: an edit that changes the method
+                // without supplying a secret is refused, which is its own test below.
+                username: "vds-monitor".to_owned(),
+                auth_kind: SshAuthKind::Password,
+                secret: None,
+                passphrase: None,
+            },
+            poll_interval_secs: 30,
+            enabled: true,
+            tags: Vec::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn editing_keeps_the_identifier_and_therefore_the_history() {
+        // The whole reason this exists. Delete-and-re-add — the only option before —
+        // threw away every metric, incident and event keyed by this id.
+        let h = harness();
+        let created = h
+            .service
+            .create_server(ssh_server("web-01"))
+            .await
+            .expect("created");
+
+        let mut edit = ssh_edit("web-01-renamed");
+        edit.poll_interval_secs = 120;
+        let updated = h
+            .service
+            .update_server(created.id, edit)
+            .await
+            .expect("updated");
+
+        assert_eq!(updated.id, created.id, "the identifier changed");
+        assert_eq!(updated.name, "web-01-renamed");
+        assert_eq!(updated.poll_interval_secs, 120);
+    }
+
+    #[tokio::test]
+    async fn an_edit_without_a_new_secret_keeps_the_stored_one() {
+        // Changing a polling interval must not require re-pasting a private key.
+        let h = harness();
+        let created = h
+            .service
+            .create_server(ssh_server("web-01"))
+            .await
+            .expect("created");
+        let reference = created.connection.credential_ref();
+        let before = h
+            .secrets
+            .retrieve(reference, SecretKind::SshPassword)
+            .await
+            .expect("stored");
+
+        h.service
+            .update_server(created.id, ssh_edit("web-01"))
+            .await
+            .expect("updated");
+
+        let after = h
+            .secrets
+            .retrieve(reference, SecretKind::SshPassword)
+            .await
+            .expect("still stored");
+        assert_eq!(before.expose(), after.expose(), "the key was disturbed");
+    }
+
+    #[tokio::test]
+    async fn supplying_a_new_secret_replaces_the_stored_one() {
+        let h = harness();
+        let created = h
+            .service
+            .create_server(ssh_server("web-01"))
+            .await
+            .expect("created");
+        let reference = created.connection.credential_ref();
+
+        let mut edit = ssh_edit("web-01");
+        edit.connection = ConnectionEdit::Ssh {
+            username: "vds-monitor".to_owned(),
+            auth_kind: SshAuthKind::Password,
+            secret: Some(Secret::from_string("a-new-key".to_owned())),
+            passphrase: None,
+        };
+        h.service
+            .update_server(created.id, edit)
+            .await
+            .expect("updated");
+
+        let stored = h
+            .secrets
+            .retrieve(reference, SecretKind::SshPassword)
+            .await
+            .expect("stored");
+        assert_eq!(stored.expose(), b"a-new-key");
+    }
+
+    #[tokio::test]
+    async fn changing_the_authentication_method_requires_a_new_secret() {
+        // Otherwise the stored password would be read back as a private key, and the
+        // failure would surface at the next collection as an unexplained auth error.
+        let h = harness();
+        let created = h
+            .service
+            .create_server(ssh_server("web-01"))
+            .await
+            .expect("created");
+
+        let mut edit = ssh_edit("web-01");
+        edit.connection = ConnectionEdit::Ssh {
+            username: "vds-monitor".to_owned(),
+            auth_kind: SshAuthKind::PrivateKey,
+            secret: None,
+            passphrase: None,
+        };
+
+        let err = h
+            .service
+            .update_server(created.id, edit)
+            .await
+            .expect_err("must refuse");
+        assert!(matches!(err, ProvisioningError::MissingCredential));
+    }
+
+    #[tokio::test]
+    async fn switching_to_agent_mode_requires_a_token() {
+        let h = harness();
+        let created = h
+            .service
+            .create_server(ssh_server("web-01"))
+            .await
+            .expect("created");
+
+        let mut edit = ssh_edit("web-01");
+        edit.connection = ConnectionEdit::Agent {
+            port: 9443,
+            token: None,
+        };
+
+        assert!(matches!(
+            h.service.update_server(created.id, edit).await,
+            Err(ProvisioningError::MissingCredential)
+        ));
+    }
+
+    #[tokio::test]
+    async fn an_invalid_edit_is_refused_and_changes_nothing() {
+        let h = harness();
+        let created = h
+            .service
+            .create_server(ssh_server("web-01"))
+            .await
+            .expect("created");
+
+        let mut edit = ssh_edit("");
+        edit.host = String::new();
+        assert!(h.service.update_server(created.id, edit).await.is_err());
+
+        let unchanged = h.servers.get(created.id).await.expect("still there");
+        assert_eq!(
+            unchanged.name, "web-01",
+            "a rejected edit was partly applied"
+        );
+    }
+
+    #[tokio::test]
+    async fn editing_a_server_that_does_not_exist_is_refused() {
+        let h = harness();
+        assert!(
+            h.service
+                .update_server(ServerId::new(), ssh_edit("ghost"))
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn editing_a_website_keeps_its_identifier() {
+        // Which is what the availability history, the counter and the screenshot hang on.
+        let h = harness();
+        let created = h
+            .service
+            .create_website(NewWebsite {
+                name: "Example".into(),
+                url: "https://example.com/".into(),
+                poll_interval_secs: 60,
+                expected_status: 200,
+                expected_text: None,
+                server_id: None,
+            })
+            .await
+            .expect("created");
+
+        let updated = h
+            .service
+            .update_website(
+                created.id,
+                NewWebsite {
+                    name: "Example renamed".into(),
+                    url: "example.org".into(),
+                    poll_interval_secs: 120,
+                    expected_status: 301,
+                    expected_text: Some("  hello  ".into()),
+                    server_id: None,
+                },
+            )
+            .await
+            .expect("updated");
+
+        assert_eq!(updated.id, created.id);
+        assert_eq!(updated.name, "Example renamed");
+        // The scheme is added by the same path that adds it for a new website.
+        assert_eq!(updated.url, "https://example.org");
+        assert_eq!(updated.poll_interval_secs, 120);
+        assert_eq!(updated.expectation.status, 301);
+        assert_eq!(updated.expectation.body_contains.as_deref(), Some("hello"));
+    }
+
+    #[tokio::test]
+    async fn clearing_the_expected_text_removes_it_rather_than_matching_everything() {
+        // An empty expectation would match any response, so the check would pass while
+        // testing nothing.
+        let h = harness();
+        let created = h
+            .service
+            .create_website(NewWebsite {
+                name: "Example".into(),
+                url: "https://example.com/".into(),
+                poll_interval_secs: 60,
+                expected_status: 200,
+                expected_text: Some("welcome".into()),
+                server_id: None,
+            })
+            .await
+            .expect("created");
+
+        let updated = h
+            .service
+            .update_website(
+                created.id,
+                NewWebsite {
+                    name: "Example".into(),
+                    url: "https://example.com/".into(),
+                    poll_interval_secs: 60,
+                    expected_status: 200,
+                    expected_text: Some("   ".into()),
+                    server_id: None,
+                },
+            )
+            .await
+            .expect("updated");
+
+        assert_eq!(updated.expectation.body_contains, None);
     }
 }

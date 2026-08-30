@@ -429,6 +429,32 @@ ENTRIES = [
     ("action_connect", "Connect", "Подключить"),
     ("action_disconnect", "Disconnect", "Отключить"),
 
+    # --- why a collection failed --------------------------------------------------
+    # Shown on a server that is not answering. The detail from the transport is kept
+    # beneath these, because "which key, exactly" is what makes a failure diagnosable.
+    ("servers_edit", "Edit server", "Изменить сервер"),
+    ("websites_edit", "Edit website", "Изменить сайт"),
+    ("action_edit", "Edit", "Изменить"),
+    ("action_save_changes", "Save", "Сохранить"),
+    ("dlg_ph_secret_kept", "Leave empty to keep the stored one",
+     "Оставьте пустым, чтобы сохранить прежний"),
+
+    ("conn_auth", "Authentication failed. Check the user name and the key or password.",
+     "Аутентификация не удалась. Проверьте имя пользователя и ключ или пароль."),
+    ("conn_host_key", "The server’s host key has changed. Verify the new fingerprint before reconnecting.",
+     "Ключ хоста сервера изменился. Сверьте новый отпечаток, прежде чем подключаться."),
+    ("conn_refused", "Could not connect. The server may be down, or a firewall is in the way.",
+     "Не удалось подключиться. Сервер выключен либо мешает межсетевой экран."),
+    ("conn_timeout", "The server did not answer in time.",
+     "Сервер не ответил вовремя."),
+    ("conn_command", "A command did not run on the server.",
+     "Команда на сервере не выполнилась."),
+    ("conn_disconnected", "The connection was lost.", "Соединение потеряно."),
+    ("conn_no_credential", "The stored credential could not be read.",
+     "Не удалось прочитать сохранённые учётные данные."),
+    ("conn_protocol", "The server answered in a way this version does not understand.",
+     "Сервер ответил так, как эта версия не понимает."),
+
     ("err_counter_empty", "Enter the counter number", "Укажите номер счётчика"),
     ("err_counter_malformed", "A counter number is digits only — not a link",
      "Номер счётчика — только цифры, не ссылка"),

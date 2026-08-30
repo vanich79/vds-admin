@@ -128,6 +128,8 @@ export struct ServerDetail {
     uptime: string,
     last-check: string,
     last-error: string,
+    /// The transport's own words, shown beneath the translation for diagnosis.
+    last-error-detail: string,
     cards: [StatCard],
     // `false` when the host has no Docker at all, which is different from having none
     // running — the panel is hidden entirely rather than shown empty.

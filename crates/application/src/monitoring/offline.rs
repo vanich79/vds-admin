@@ -68,6 +68,7 @@ impl OfflineDetector {
         state.last_check = Some(now);
         state.last_success = Some(now);
         state.last_error = None;
+        state.last_error_kind = None;
         state.status = health;
         Transition {
             from,
@@ -81,6 +82,7 @@ impl OfflineDetector {
         &self,
         state: &mut ServerRuntimeState,
         error: impl Into<String>,
+        kind: Option<vds_domain::ports::TransportErrorKind>,
         now: DateTime<Utc>,
     ) -> Transition {
         let from = state.status;
@@ -89,6 +91,9 @@ impl OfflineDetector {
         state.consecutive_failures = state.consecutive_failures.saturating_add(1);
         state.last_check = Some(now);
         state.last_error = Some(error.clone());
+        // Carried beside the sentence so the interface can say what happened in the
+        // user's language without parsing English prose.
+        state.last_error_kind = kind;
 
         // Below the threshold the status is Unknown, not Offline and not the previous
         // value: we genuinely do not know, and pretending the last reading still holds
@@ -205,7 +210,7 @@ mod tests {
         let detector = OfflineDetector::new(3);
         let mut state = healthy_state();
 
-        let transition = detector.record_server_failure(&mut state, "timeout", at(0));
+        let transition = detector.record_server_failure(&mut state, "timeout", None, at(0));
         assert_eq!(transition.to, Status::Unknown);
         assert_eq!(state.consecutive_failures, 1);
         assert_eq!(detector.failures_remaining(state.consecutive_failures), 2);
@@ -216,11 +221,11 @@ mod tests {
         let detector = OfflineDetector::new(3);
         let mut state = healthy_state();
 
-        detector.record_server_failure(&mut state, "timeout", at(0));
-        detector.record_server_failure(&mut state, "timeout", at(30));
+        detector.record_server_failure(&mut state, "timeout", None, at(0));
+        detector.record_server_failure(&mut state, "timeout", None, at(30));
         assert_eq!(state.status, Status::Unknown);
 
-        let transition = detector.record_server_failure(&mut state, "timeout", at(60));
+        let transition = detector.record_server_failure(&mut state, "timeout", None, at(60));
         assert_eq!(transition.to, Status::Offline);
         assert!(transition.changed());
         assert_eq!(state.consecutive_failures, 3);
@@ -237,7 +242,7 @@ mod tests {
         let mut state = healthy_state();
         assert_eq!(
             detector
-                .record_server_failure(&mut state, "refused", at(0))
+                .record_server_failure(&mut state, "refused", None, at(0))
                 .to,
             Status::Offline
         );
@@ -254,8 +259,8 @@ mod tests {
         let detector = OfflineDetector::new(3);
         let mut state = healthy_state();
 
-        detector.record_server_failure(&mut state, "timeout", at(0));
-        detector.record_server_failure(&mut state, "timeout", at(30));
+        detector.record_server_failure(&mut state, "timeout", None, at(0));
+        detector.record_server_failure(&mut state, "timeout", None, at(30));
 
         let transition = detector.record_server_success(&mut state, Status::Healthy, at(60));
         assert_eq!(transition.from, Status::Unknown);
@@ -269,8 +274,8 @@ mod tests {
     fn recovery_from_offline_is_reported_as_a_change() {
         let detector = OfflineDetector::new(2);
         let mut state = healthy_state();
-        detector.record_server_failure(&mut state, "down", at(0));
-        detector.record_server_failure(&mut state, "down", at(30));
+        detector.record_server_failure(&mut state, "down", None, at(0));
+        detector.record_server_failure(&mut state, "down", None, at(30));
         assert_eq!(state.status, Status::Offline);
 
         let transition = detector.record_server_success(&mut state, Status::Healthy, at(60));
@@ -286,11 +291,11 @@ mod tests {
         let detector = OfflineDetector::new(2);
         let mut state = healthy_state();
 
-        detector.record_server_failure(&mut state, "timeout", at(0));
+        detector.record_server_failure(&mut state, "timeout", None, at(0));
         // Not offline yet, so the last reading is still on screen — but as Unknown.
         assert_eq!(state.cpu_percent, MetricValue::Available(12.0));
 
-        detector.record_server_failure(&mut state, "timeout", at(30));
+        detector.record_server_failure(&mut state, "timeout", None, at(30));
         assert_eq!(state.status, Status::Offline);
         assert_eq!(state.cpu_percent, MetricValue::NotAvailable);
         assert_eq!(state.memory_percent, MetricValue::NotAvailable);
@@ -324,7 +329,7 @@ mod tests {
         let detector = OfflineDetector::new(3);
         let mut state = healthy_state();
         state.consecutive_failures = u32::MAX;
-        detector.record_server_failure(&mut state, "still down", at(0));
+        detector.record_server_failure(&mut state, "still down", None, at(0));
         assert_eq!(state.consecutive_failures, u32::MAX);
         assert_eq!(state.status, Status::Offline);
     }

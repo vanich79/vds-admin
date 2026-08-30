@@ -173,7 +173,8 @@ impl ServerMonitor {
             .await
             .unwrap_or_else(|_| vds_domain::server::ServerRuntimeState::unknown(server.id));
 
-        let transition = detector.record_server_failure(&mut state, err.to_string(), now);
+        let transition =
+            detector.record_server_failure(&mut state, err.to_string(), Some(err.kind()), now);
         let failures = state.consecutive_failures;
 
         if let Err(save_err) = self.servers.save_state(&state).await {

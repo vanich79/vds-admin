@@ -55,6 +55,23 @@ impl Database {
     }
 
     /// Opens an in-memory database, for tests.
+    /// An in-memory database with no schema at all.
+    ///
+    /// Only the migration tests want this: everything else expects a database it can use,
+    /// and applying the migrations is part of opening one. It exists so an *upgrade* can
+    /// be tested — starting from v1 and checking the rows survive — which is the case
+    /// that runs on a database that has been collecting for weeks.
+    #[cfg(test)]
+    pub(crate) fn unmigrated_in_memory() -> Result<Self, RepositoryError> {
+        let connection = Connection::open_in_memory()
+            .map_err(|e| RepositoryError::Backend(format!("could not open database: {e}")))?;
+        configure(&connection)?;
+        Ok(Self {
+            connection: Arc::new(Mutex::new(connection)),
+            path: None,
+        })
+    }
+
     pub async fn open_in_memory() -> Result<Self, RepositoryError> {
         let connection = Connection::open_in_memory()
             .map_err(|e| RepositoryError::Backend(format!("could not open database: {e}")))?;

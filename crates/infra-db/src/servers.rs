@@ -78,6 +78,7 @@ fn read_state(row: &Row<'_>) -> Result<ServerRuntimeState, rusqlite::Error> {
     let cpu_percent: Option<f64> = row.get(7)?;
     let memory_percent: Option<f64> = row.get(8)?;
     let disk_percent: Option<f64> = row.get(9)?;
+    let last_error_kind: Option<String> = row.get(10)?;
 
     Ok(ServerRuntimeState {
         server_id: ServerId::from_uuid(
@@ -90,6 +91,11 @@ fn read_state(row: &Row<'_>) -> Result<ServerRuntimeState, rusqlite::Error> {
         last_success: optional_millis(last_success).map_err(corrupt)?,
         consecutive_failures: consecutive_failures.max(0) as u32,
         last_error,
+        // An unrecognised code — written by a newer build — becomes `None` rather than a
+        // wrong kind, and the interface falls back to showing the message alone.
+        last_error_kind: last_error_kind
+            .as_deref()
+            .and_then(vds_domain::ports::TransportErrorKind::parse),
         uptime_secs: uptime_secs.map(|v| v.max(0) as u64),
         cpu_percent: cpu_percent.into(),
         memory_percent: memory_percent.into(),
@@ -185,7 +191,8 @@ impl ServerRepository for SqliteServerRepository {
             .call(move |connection| {
                 let mut statement = connection.prepare(
                     "SELECT server_id, status, last_check, last_success, consecutive_failures,
-                            last_error, uptime_secs, cpu_percent, memory_percent, disk_percent
+                            last_error, uptime_secs, cpu_percent, memory_percent, disk_percent,
+                            last_error_kind
                      FROM server_state WHERE server_id = ?1",
                 )?;
                 let mut rows = statement.query_map([Sql(id)], read_state)?;
@@ -205,8 +212,8 @@ impl ServerRepository for SqliteServerRepository {
                 connection.execute(
                     "INSERT INTO server_state (server_id, status, last_check, last_success,
                          consecutive_failures, last_error, uptime_secs, cpu_percent,
-                         memory_percent, disk_percent)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+                         memory_percent, disk_percent, last_error_kind)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
                      ON CONFLICT(server_id) DO UPDATE SET
                          status = excluded.status,
                          last_check = excluded.last_check,
@@ -216,7 +223,8 @@ impl ServerRepository for SqliteServerRepository {
                          uptime_secs = excluded.uptime_secs,
                          cpu_percent = excluded.cpu_percent,
                          memory_percent = excluded.memory_percent,
-                         disk_percent = excluded.disk_percent",
+                         disk_percent = excluded.disk_percent,
+                         last_error_kind = excluded.last_error_kind",
                     rusqlite::params![
                         Sql(state.server_id),
                         state.status.as_str(),
@@ -228,6 +236,7 @@ impl ServerRepository for SqliteServerRepository {
                         metric_column(state.cpu_percent),
                         metric_column(state.memory_percent),
                         metric_column(state.disk_percent),
+                        state.last_error_kind.map(|kind| kind.as_str()),
                     ],
                 )?;
                 Ok(())
@@ -240,7 +249,8 @@ impl ServerRepository for SqliteServerRepository {
             .call(move |connection| {
                 let mut statement = connection.prepare(
                     "SELECT server_id, status, last_check, last_success, consecutive_failures,
-                            last_error, uptime_secs, cpu_percent, memory_percent, disk_percent
+                            last_error, uptime_secs, cpu_percent, memory_percent, disk_percent,
+                            last_error_kind
                      FROM server_state",
                 )?;
                 let rows = statement.query_map([], read_state)?;
@@ -255,6 +265,7 @@ mod tests {
     use super::*;
     use chrono::{DateTime, Utc};
     use vds_domain::ids::CredentialRef;
+    use vds_domain::ports::TransportErrorKind;
     use vds_domain::server::{SshAuthKind, SshSettings};
 
     fn at(secs: i64) -> DateTime<Utc> {
@@ -521,5 +532,60 @@ mod tests {
             state.consecutive_failures, 2,
             "a restart must not forgive an outage"
         );
+    }
+
+    #[tokio::test]
+    async fn the_failure_kind_survives_a_round_trip() {
+        // The whole point of storing it: the interface needs the kind to translate, and
+        // reads it back from here on every start.
+        let repository = repository().await;
+        let server = sample_server("web-01");
+        repository.save(&server).await.expect("saved");
+
+        let mut state = ServerRuntimeState::unknown(server.id);
+        state.last_error = Some("authentication failed: bad key".into());
+        state.last_error_kind = Some(TransportErrorKind::Authentication);
+        repository.save_state(&state).await.expect("saved");
+
+        let loaded = repository.load_state(server.id).await.expect("loaded");
+        assert_eq!(
+            loaded.last_error_kind,
+            Some(TransportErrorKind::Authentication)
+        );
+        assert_eq!(
+            loaded.last_error.as_deref(),
+            Some("authentication failed: bad key")
+        );
+    }
+
+    #[tokio::test]
+    async fn a_state_without_a_kind_reads_back_as_none() {
+        // Rows written before this column existed, and every successful check.
+        let repository = repository().await;
+        let server = sample_server("web-01");
+        repository.save(&server).await.expect("saved");
+
+        let state = ServerRuntimeState::unknown(server.id);
+        repository.save_state(&state).await.expect("saved");
+
+        let loaded = repository.load_state(server.id).await.expect("loaded");
+        assert_eq!(loaded.last_error_kind, None);
+    }
+
+    #[tokio::test]
+    async fn listing_states_returns_the_kind_too() {
+        // A regression guard: the single-row query and the list query read the same
+        // columns, and updating only one of them emptied the whole server list.
+        let repository = repository().await;
+        let server = sample_server("web-01");
+        repository.save(&server).await.expect("saved");
+
+        let mut state = ServerRuntimeState::unknown(server.id);
+        state.last_error_kind = Some(TransportErrorKind::Timeout);
+        repository.save_state(&state).await.expect("saved");
+
+        let all = repository.list_states().await.expect("listed");
+        assert_eq!(all.len(), 1, "the list query returned nothing");
+        assert_eq!(all[0].last_error_kind, Some(TransportErrorKind::Timeout));
     }
 }

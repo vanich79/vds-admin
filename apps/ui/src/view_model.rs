@@ -129,7 +129,13 @@ pub fn server_detail(
             |s| format::duration_secs(s as i64),
         ),
         last_check: format::relative_time(state.last_check, now),
-        last_error: state.last_error.clone().unwrap_or_default(),
+        last_error: state
+            .last_error
+            .as_deref()
+            .map(|detail| describe_connection_error(state.last_error_kind, detail))
+            .unwrap_or_default(),
+        // The transport's own words, kept beneath the translation for diagnosis.
+        last_error_detail: state.last_error.clone().unwrap_or_default(),
         cards,
         // `None` means the collector never ran or the host has no Docker; an empty vector
         // means Docker is there with nothing running. The panel is hidden only in the
@@ -329,6 +335,40 @@ pub fn event_row(envelope: &EventEnvelope, now: DateTime<Utc>) -> EventRow {
         message: describe_event(&envelope.event).into(),
         when: format::relative_time(Some(envelope.occurred_at), now).into(),
     }
+}
+
+/// Why a server is not answering, in the user's language.
+///
+/// The transport's own message is English and already formatted, so it cannot be
+/// translated after the fact — the *kind* is carried beside it for exactly this. The
+/// original text is not thrown away: it becomes the detail line, because "which key,
+/// exactly" is what makes a failure diagnosable.
+///
+/// A state saved by an older build has no kind, and one saved by a newer build may have
+/// a kind this version does not know. Both fall back to the detail alone, which is worse
+/// than a translation and much better than an empty box.
+pub fn describe_connection_error(
+    kind: Option<vds_domain::ports::TransportErrorKind>,
+    detail: &str,
+) -> String {
+    use vds_domain::ports::TransportErrorKind as K;
+
+    let strings = crate::i18n::strings();
+    let Some(kind) = kind else {
+        return detail.to_owned();
+    };
+
+    match kind {
+        K::Authentication => strings.conn_auth,
+        K::HostKeyRejected => strings.conn_host_key,
+        K::Connection => strings.conn_refused,
+        K::Timeout => strings.conn_timeout,
+        K::Execution => strings.conn_command,
+        K::NotConnected => strings.conn_disconnected,
+        K::MissingCredential => strings.conn_no_credential,
+        K::Protocol => strings.conn_protocol,
+    }
+    .to_owned()
 }
 
 /// A rejected form, phrased for the person who filled it in.

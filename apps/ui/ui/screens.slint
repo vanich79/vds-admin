@@ -492,6 +492,7 @@ export component ServerDetailScreen inherits VerticalLayout {
     callback open-website(string);
     callback forget-host-key();
     callback delete-server();
+    callback edit-server();
 
     // Two-step, because both actions on the Settings tab are irreversible and neither
     // has an undo. Which one is armed is tracked here rather than in a modal: a
@@ -541,15 +542,24 @@ export component ServerDetailScreen inherits VerticalLayout {
         border-radius: Theme.radius-sm;
         border-width: 1px;
         border-color: Theme.status-critical.with-alpha(0.4);
-        height: 38px;
-        HorizontalLayout {
+        VerticalLayout {
             padding: Theme.space-sm;
+            spacing: 2px;
+
             Text {
                 text: root.server.last-error;
                 font-size: Theme.text-sm;
                 color: Theme.status-critical;
-                vertical-alignment: center;
-                overflow: elide;
+                wrap: word-wrap;
+            }
+
+            // The transport's own words. Kept, and kept quiet: the sentence above says
+            // what to do, this says exactly what happened.
+            if root.server.last-error-detail != root.server.last-error: Text {
+                text: root.server.last-error-detail;
+                font-size: Theme.text-xs;
+                color: Theme.text-faint;
+                wrap: word-wrap;
             }
         }
     }
@@ -702,6 +712,25 @@ export component ServerDetailScreen inherits VerticalLayout {
                 }
 
                 Card {
+            title: L.servers_edit;
+
+            Text {
+                text: L.dlg_ssh_subtitle;
+                font-size: Theme.text-sm;
+                color: Theme.text-muted;
+                wrap: word-wrap;
+            }
+
+            HorizontalLayout {
+                alignment: start;
+                FlatButton {
+                    text: L.action_edit;
+                    clicked => { root.edit-server(); }
+                }
+            }
+        }
+
+        Card {
                     title: L.sd_host_key;
 
                     Text {
@@ -918,6 +947,7 @@ export component WebsiteDetailScreen inherits VerticalLayout {
     callback back();
     callback period-changed(int);
     callback refresh-screenshot();
+    callback edit-website();
     callback connect-analytics(string);
     callback disconnect-analytics();
 
@@ -938,6 +968,10 @@ export component WebsiteDetailScreen inherits VerticalLayout {
             Text { text: root.website.url; font-size: Theme.text-xs; color: Theme.text-faint; }
         }
         Rectangle { horizontal-stretch: 1; }
+        FlatButton {
+            text: L.action_edit;
+            clicked => { root.edit-website(); }
+        }
         StatusBadge { status: root.website.status; label: root.website.status-label; }
     }
 

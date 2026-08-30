@@ -636,6 +636,9 @@ pub struct ServerRuntimeState {
     /// Consecutive failed checks; reset to zero on any success.
     pub consecutive_failures: u32,
     pub last_error: Option<String>,
+    /// The kind of the last failure, so the interface can say what happened in the
+    /// user's language. `last_error` keeps the original technical detail.
+    pub last_error_kind: Option<crate::ports::TransportErrorKind>,
     pub uptime_secs: Option<u64>,
     pub cpu_percent: MetricValue,
     pub memory_percent: MetricValue,
@@ -651,6 +654,7 @@ impl ServerRuntimeState {
             last_success: None,
             consecutive_failures: 0,
             last_error: None,
+            last_error_kind: None,
             uptime_secs: None,
             cpu_percent: MetricValue::NotAvailable,
             memory_percent: MetricValue::NotAvailable,

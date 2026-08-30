@@ -50,7 +50,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use vds_application::config::{Configuration, Theme as ConfiguredTheme};
-use vds_application::provisioning::{NewConnection, NewServer, NewWebsite};
+use vds_application::provisioning::{
+    ConnectionEdit, NewConnection, NewServer, NewWebsite, ServerEdit,
+};
 use vds_composition::{AppPaths, Application, SecretsSetup, logging};
 use vds_domain::analytics::AnalyticsPeriod;
 use vds_domain::ids::{IncidentId, ServerId, WebsiteId};
@@ -84,7 +86,20 @@ enum Intent {
     AcknowledgeIncident(IncidentId),
     ToggleRule(vds_domain::ids::AlertRuleId),
     SaveAnalyticsToken(Secret),
-    ConnectAnalytics { website: WebsiteId, counter: String },
+    UpdateServer {
+        id: ServerId,
+        edit: Box<ServerEdit>,
+    },
+    UpdateWebsite {
+        id: WebsiteId,
+        edit: Box<NewWebsite>,
+    },
+    BeginEditServer(ServerId),
+    BeginEditWebsite(WebsiteId),
+    ConnectAnalytics {
+        website: WebsiteId,
+        counter: String,
+    },
     DisconnectAnalytics(WebsiteId),
 }
 
@@ -587,6 +602,109 @@ fn wire_callbacks(window: &AppWindow, intents: &mpsc::UnboundedSender<Intent>) {
     window.on_add_rule(move || send(&queue, Intent::RefreshAlerts));
 
     let queue = intents.clone();
+    window.on_begin_edit_website(move |id| match WebsiteId::parse(&id) {
+        Ok(id) => send(&queue, Intent::BeginEditWebsite(id)),
+        Err(error) => tracing::warn!(%error, "ignoring a malformed website id"),
+    });
+
+    let queue = intents.clone();
+    window.on_update_website(move |id, name, url, interval, status, text| {
+        let Ok(id) = WebsiteId::parse(&id) else {
+            tracing::warn!("ignoring a malformed website id");
+            return;
+        };
+        send(
+            &queue,
+            Intent::UpdateWebsite {
+                id,
+                edit: Box::new(NewWebsite {
+                    name: name.to_string(),
+                    url: url.to_string(),
+                    poll_interval_secs: runtime::number_or(
+                        &interval,
+                        vds_domain::website::DEFAULT_WEBSITE_POLL_INTERVAL_SECS,
+                    ),
+                    expected_status: runtime::number_or(&status, 200),
+                    // Empty means "do not check the body". An empty expectation would
+                    // match any response, so the check would pass while testing nothing.
+                    expected_text: Some(text.to_string()),
+                    server_id: None,
+                }),
+            },
+        );
+    });
+
+    let queue = intents.clone();
+    window.on_begin_edit_server(move |id| match ServerId::parse(&id) {
+        Ok(id) => send(&queue, Intent::BeginEditServer(id)),
+        Err(error) => tracing::warn!(%error, "ignoring a malformed server id"),
+    });
+
+    let queue = intents.clone();
+    #[allow(clippy::too_many_arguments)]
+    window.on_update_server(
+        move |id,
+              name,
+              host,
+              port,
+              mode,
+              auth_kind,
+              username,
+              secret,
+              passphrase,
+              token,
+              interval| {
+            let Ok(id) = ServerId::parse(&id) else {
+                tracing::warn!("ignoring a malformed server id");
+                return;
+            };
+            // An empty field means "keep the stored credential", which is the whole
+            // reason editing exists as its own operation.
+            let optional = |value: SharedString| {
+                let value = value.to_string();
+                (!value.trim().is_empty()).then(|| Secret::from_string(value))
+            };
+
+            let connection = if runtime::is_agent_mode(mode) {
+                ConnectionEdit::Agent {
+                    port: runtime::number_or(&port, vds_domain::server::DEFAULT_AGENT_PORT),
+                    token: optional(token),
+                }
+            } else {
+                ConnectionEdit::Ssh {
+                    username: username.to_string(),
+                    auth_kind: runtime::auth_kind_at(auth_kind),
+                    secret: optional(secret),
+                    passphrase: optional(passphrase),
+                }
+            };
+
+            send(
+                &queue,
+                Intent::UpdateServer {
+                    id,
+                    edit: Box::new(ServerEdit {
+                        name: name.to_string(),
+                        host: host.to_string(),
+                        port: if runtime::is_agent_mode(mode) {
+                            vds_domain::server::DEFAULT_SSH_PORT
+                        } else {
+                            runtime::number_or(&port, vds_domain::server::DEFAULT_SSH_PORT)
+                        },
+                        connection,
+                        poll_interval_secs: runtime::number_or(
+                            &interval,
+                            vds_domain::server::DEFAULT_POLL_INTERVAL_SECS,
+                        ),
+                        enabled: true,
+                        tags: Vec::new(),
+                    }),
+                },
+            );
+        },
+    );
+
+    let queue = intents.clone();
     window.on_save_analytics_token(move |token| {
         // Wrapped in `Secret` at the boundary, so it is redacted from every log line and
         // zeroed on drop from here on.
@@ -669,6 +787,106 @@ async fn worker(
                     window.set_alert_history(view_model::model(history));
                     window.set_alert_rules(view_model::model(rules));
                 });
+            }
+
+            Intent::BeginEditWebsite(id) => {
+                let Ok(website) = application.websites.get(id).await else {
+                    continue;
+                };
+                push(&window, move |window| {
+                    window.set_form_website_name(website.name.clone().into());
+                    window.set_form_url(website.url.clone().into());
+                    window.set_form_website_interval(website.poll_interval_secs.to_string().into());
+                    window.set_form_expected_status(website.expectation.status.to_string().into());
+                    window.set_form_expected_text(
+                        website
+                            .expectation
+                            .body_contains
+                            .clone()
+                            .unwrap_or_default()
+                            .into(),
+                    );
+
+                    window.set_editing_website(true);
+                    window.set_dialog_error(SharedString::new());
+                    window.set_showing_add_website(true);
+                });
+            }
+
+            Intent::BeginEditServer(id) => {
+                // The form is filled from stored state rather than from what is on
+                // screen, so an abandoned edit leaves nothing behind.
+                let Ok(server) = application.servers.get(id).await else {
+                    continue;
+                };
+                push(&window, move |window| {
+                    window.set_form_server_name(server.name.clone().into());
+                    window.set_form_host(server.host.clone().into());
+                    window.set_form_port(server.port.to_string().into());
+                    window.set_form_interval(server.poll_interval_secs.to_string().into());
+
+                    match &server.connection {
+                        vds_domain::server::ConnectionSettings::Ssh(ssh) => {
+                            window.set_form_mode(0);
+                            window.set_form_username(ssh.username.clone().into());
+                            window.set_form_auth_kind(runtime::auth_kind_index(ssh.auth_kind));
+                        }
+                        vds_domain::server::ConnectionSettings::Agent(agent) => {
+                            window.set_form_mode(1);
+                            window.set_form_port(agent.port.to_string().into());
+                        }
+                    }
+
+                    window.set_editing_server(true);
+                    window.set_dialog_error(SharedString::new());
+                    window.set_showing_add_server(true);
+                });
+            }
+
+            Intent::UpdateServer { id, edit } => {
+                match application.provisioning.update_server(id, *edit).await {
+                    Ok(_) => {
+                        push(&window, |window| {
+                            window.set_showing_add_server(false);
+                            window.set_editing_server(false);
+                        });
+                        let rows = server_rows(&application).await;
+                        push(&window, move |window| {
+                            window.set_servers(view_model::model(rows));
+                        });
+                        if let Some(detail) = server_detail(&application, id, range).await {
+                            push(&window, move |window| detail.apply(&window));
+                        }
+                    }
+                    Err(error) => {
+                        let message = view_model::describe_provisioning_error(&error);
+                        push(&window, move |window| {
+                            window.set_dialog_error(message.into());
+                        });
+                    }
+                }
+            }
+
+            Intent::UpdateWebsite { id, edit } => {
+                match application.provisioning.update_website(id, *edit).await {
+                    Ok(_) => {
+                        push(&window, |window| {
+                            window.set_showing_add_website(false);
+                            window.set_editing_website(false);
+                        });
+                        let directory = runtime.screenshot_dir();
+                        let cards = runtime.website_cards().await;
+                        push(&window, move |window| {
+                            window.set_websites(view_model::model(into_cards(cards, &directory)));
+                        });
+                    }
+                    Err(error) => {
+                        let message = view_model::describe_provisioning_error(&error);
+                        push(&window, move |window| {
+                            window.set_dialog_error(message.into());
+                        });
+                    }
+                }
             }
 
             Intent::SaveAnalyticsToken(token) => {
