@@ -7,12 +7,12 @@ import { L } from "strings.slint";
 import { FlatButton, StatusBadge } from "components.slint";
 import { AddServerDialog, AddWebsiteDialog } from "dialogs.slint";
 import {
-    AlertsScreen, AnalyticsScreen, DashboardScreen, ServerDetailScreen, ServersScreen,
+    AlertsScreen, AnalyticsScreen, DashboardScreen, FilesScreen, ServerDetailScreen, ServersScreen,
     SettingsScreen, WebsiteDetailScreen, WebsitesScreen
 } from "screens.slint";
 import {
-    AlertRow, ChartData, ContainerRow, EventRow, ProcessRow, ServerDetail, ServerRow,
-    ServiceRow, StatCard, TopPageRow, WebsiteCard, WebsiteDetail
+    AlertRow, ChartData, ContainerRow, EventRow, FileEntry, ProcessRow, ServerDetail,
+    ServerRow, ServiceRow, SiteFolder, StatCard, TopPageRow, WebsiteCard, WebsiteDetail
 } from "models.slint";
 
 export { Theme, Layout, L }
@@ -191,6 +191,34 @@ export component AppWindow inherits Window {
     callback connect-analytics(string, string);
     callback disconnect-analytics(string);
 
+    // --- files ---
+    // The file browser lives inside the server section rather than as a page of its own:
+    // a file has no meaning without the machine it is on, and the back button should
+    // return to that machine.
+    in-out property <bool> showing-files: false;
+    in property <string> files-server-name;
+    in property <string> files-path;
+    in property <[FileEntry]> file-entries;
+    in property <[SiteFolder]> site-folders;
+    in property <bool> files-busy: false;
+    in property <string> files-error;
+    in property <string> open-file-path;
+    in property <string> open-file-info;
+    in property <bool> open-file-truncated: false;
+    in-out property <string> open-file-text;
+    /// What was last read from or written to the server. The editor compares against it
+    /// to know whether there is anything to save.
+    in property <string> open-file-saved-text;
+
+    callback open-files();
+    callback browse-path(string);
+    callback open-file-entry(string, bool);
+    callback save-open-file(string);
+    callback close-open-file();
+    callback delete-file-entry(string);
+    callback create-file-entry(string, bool);
+    callback refresh-files();
+
     // --- dialogs ---
     // Which modal is open, and what the last attempt said. The worker owns both: the
     // dialog closes when the creation succeeds, and stays open with an error when it
@@ -298,11 +326,11 @@ export component AppWindow inherits Window {
 
                 NavItem {
                     label: L.nav_dashboard; glyph: "◧"; active: root.page == 0;
-                    clicked => { root.page = 0; root.showing-server-detail = false; root.showing-website-detail = false; }
+                    clicked => { root.page = 0; root.showing-server-detail = false; root.showing-website-detail = false; root.showing-files = false; }
                 }
                 NavItem {
                     label: L.nav_servers; glyph: "▤"; active: root.page == 1;
-                    clicked => { root.page = 1; root.showing-server-detail = false; }
+                    clicked => { root.page = 1; root.showing-server-detail = false; root.showing-files = false; }
                 }
                 NavItem {
                     label: L.nav_websites; glyph: "◈"; active: root.page == 2;
@@ -357,7 +385,7 @@ export component AppWindow inherits Window {
                     add => { root.add-server(); }
                 }
 
-                if root.page == 1 && root.showing-server-detail: ServerDetailScreen {
+                if root.page == 1 && root.showing-server-detail && !root.showing-files: ServerDetailScreen {
                     server: root.server-detail;
                     charts: root.server-charts;
                     processes: root.processes;
@@ -378,6 +406,29 @@ export component AppWindow inherits Window {
                         root.delete-server();
                     }
                     edit-server => { root.begin-edit-server(root.server-detail.id); }
+                    open-files => { root.open-files(); }
+                }
+
+                if root.page == 1 && root.showing-files: FilesScreen {
+                    server-name: root.files-server-name;
+                    path: root.files-path;
+                    entries: root.file-entries;
+                    site-folders: root.site-folders;
+                    busy: root.files-busy;
+                    error: root.files-error;
+                    file-path: root.open-file-path;
+                    file-info: root.open-file-info;
+                    file-truncated: root.open-file-truncated;
+                    file-text <=> root.open-file-text;
+                    file-saved-text: root.open-file-saved-text;
+                    back => { root.showing-files = false; }
+                    navigate(path) => { root.browse-path(path); }
+                    open-entry(name, is-directory) => { root.open-file-entry(name, is-directory); }
+                    save-file(text) => { root.save-open-file(text); }
+                    close-file => { root.close-open-file(); }
+                    delete-entry(name) => { root.delete-file-entry(name); }
+                    create-entry(name, is-directory) => { root.create-file-entry(name, is-directory); }
+                    refresh => { root.refresh-files(); }
                 }
 
                 if root.page == 2 && !root.showing-website-detail: WebsitesScreen {
@@ -481,12 +532,12 @@ export component AppWindow inherits Window {
                     NavItem {
                         label: L.nav_home; glyph: "◧"; compact: true; active: root.page == 0;
                         horizontal-stretch: 1;
-                        clicked => { root.page = 0; root.showing-server-detail = false; root.showing-website-detail = false; }
+                        clicked => { root.page = 0; root.showing-server-detail = false; root.showing-website-detail = false; root.showing-files = false; }
                     }
                     NavItem {
                         label: L.nav_servers; glyph: "▤"; compact: true; active: root.page == 1;
                         horizontal-stretch: 1;
-                        clicked => { root.page = 1; root.showing-server-detail = false; }
+                        clicked => { root.page = 1; root.showing-server-detail = false; root.showing-files = false; }
                     }
                     NavItem {
                         label: L.nav_sites_short; glyph: "◈"; compact: true; active: root.page == 2;

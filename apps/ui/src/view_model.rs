@@ -7,7 +7,8 @@
 use crate::format;
 use crate::payload::{ServerDetailPayload, WebsiteCardPayload, WebsiteDetailPayload};
 use crate::{
-    AlertRow, ContainerRow, EventRow, ProcessRow, ServerRow, ServiceRow, StatCard, TopPageRow,
+    AlertRow, ContainerRow, EventRow, FileEntry, ProcessRow, ServerRow, ServiceRow, SiteFolder,
+    StatCard, TopPageRow,
 };
 use chrono::{DateTime, Utc};
 use slint::{ModelRc, SharedString, VecModel};
@@ -535,6 +536,52 @@ fn fill2(pattern: &str, first: &str, second: &str) -> String {
 
 fn fill3(pattern: &str, first: &str, second: &str, third: &str) -> String {
     fill(&fill2(pattern, first, second), third)
+}
+
+/// One directory entry, as a row.
+///
+/// Everything the view shows is formatted here: sizes in units, dates relative to now,
+/// the symlink's target phrased as a sentence. The view lays out; it never decides what
+/// an absent value looks like.
+pub fn file_entry_row(entry: &vds_domain::ports::DirectoryEntry, now: DateTime<Utc>) -> FileEntry {
+    use vds_domain::ports::EntryKind;
+
+    let strings = crate::i18n::strings();
+    let kind = match entry.kind {
+        EntryKind::File => "file",
+        EntryKind::Directory => "directory",
+        EntryKind::Symlink => "symlink",
+        EntryKind::Other => "other",
+    };
+
+    FileEntry {
+        name: entry.name.clone().into(),
+        kind: kind.into(),
+        is_directory: entry.kind.is_directory(),
+        can_open: entry.kind.is_readable(),
+        // A directory's size is the size of its own inode, which means nothing to anyone.
+        size: if entry.kind.is_directory() {
+            SharedString::new()
+        } else {
+            format::bytes(entry.size_bytes as f64).into()
+        },
+        modified: format::relative_time(entry.modified, now).into(),
+        mode: entry.mode.clone().into(),
+        owner: entry.owner.clone().into(),
+        detail: match &entry.target {
+            Some(target) => fill(strings.files_link_to, target).into(),
+            None => SharedString::new(),
+        },
+    }
+}
+
+/// One discovered site folder, as a row.
+pub fn site_folder_row(root: &vds_application::files::SiteRoot) -> SiteFolder {
+    SiteFolder {
+        label: root.label().into(),
+        path: root.path.clone().into(),
+        source: root.source.clone().into(),
+    }
 }
 
 /// One process, as a row.

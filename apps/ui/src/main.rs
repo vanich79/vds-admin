@@ -50,6 +50,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use vds_application::config::{Configuration, Theme as ConfiguredTheme};
+use vds_application::files;
 use vds_application::provisioning::{
     ConnectionEdit, NewConnection, NewServer, NewWebsite, ServerEdit,
 };
@@ -101,6 +102,25 @@ enum Intent {
         counter: String,
     },
     DisconnectAnalytics(WebsiteId),
+
+    // --- files ---
+    // The one group of intents that changes something on a server. Each carries only a
+    // name or a path; which server it applies to is the one the worker has open, so a
+    // stale click cannot land on a different machine.
+    OpenFiles,
+    BrowseTo(String),
+    OpenFileEntry {
+        name: String,
+        is_directory: bool,
+    },
+    SaveOpenFile(String),
+    CloseOpenFile,
+    DeleteFileEntry(String),
+    CreateFileEntry {
+        name: String,
+        is_directory: bool,
+    },
+    RefreshFiles,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -737,6 +757,53 @@ fn wire_callbacks(window: &AppWindow, intents: &mpsc::UnboundedSender<Intent>) {
 
     let queue = intents.clone();
     window.on_screenshot_policy_changed(move |_index| send(&queue, Intent::RefreshWebsites));
+
+    // --- files ---
+    // Each of these says what the user asked for and nothing else. Which server it lands
+    // on is the worker's business, so a click that arrives after the user has moved on
+    // cannot reach a machine they are no longer looking at.
+
+    let queue = intents.clone();
+    window.on_open_files(move || send(&queue, Intent::OpenFiles));
+
+    let queue = intents.clone();
+    window.on_browse_path(move |path| send(&queue, Intent::BrowseTo(path.to_string())));
+
+    let queue = intents.clone();
+    window.on_open_file_entry(move |name, is_directory| {
+        send(
+            &queue,
+            Intent::OpenFileEntry {
+                name: name.to_string(),
+                is_directory,
+            },
+        );
+    });
+
+    let queue = intents.clone();
+    window.on_save_open_file(move |text| send(&queue, Intent::SaveOpenFile(text.to_string())));
+
+    let queue = intents.clone();
+    window.on_close_open_file(move || send(&queue, Intent::CloseOpenFile));
+
+    let queue = intents.clone();
+    window.on_delete_file_entry(move |name| {
+        send(&queue, Intent::DeleteFileEntry(name.to_string()));
+    });
+
+    let queue = intents.clone();
+    window.on_create_file_entry(move |name, is_directory| {
+        let name = name.trim().to_owned();
+        // A blank name would build the folder's own path, and deleting or overwriting the
+        // folder you are standing in is not what anyone meant by "new file".
+        if name.is_empty() || name.contains('/') {
+            return;
+        }
+        send(&queue, Intent::CreateFileEntry { name, is_directory });
+    });
+
+    let queue = intents.clone();
+    window.on_refresh_files(move || send(&queue, Intent::RefreshFiles));
 }
 
 /// Handles intents, off the UI thread.
@@ -748,6 +815,11 @@ async fn worker(
     let runtime = runtime::Runtime::new(Arc::clone(&application));
     let mut open_server: Option<ServerId> = None;
     let mut open_website: Option<WebsiteId> = None;
+    // Where the file browser is, and what it has open. Held here rather than read back
+    // from the window: the view is a projection, and a path that only exists on screen
+    // could be edited by a click that arrives while a listing is still in flight.
+    let mut browse_path = files::DEFAULT_START_PATH.to_owned();
+    let mut open_file: Option<String> = None;
     let mut range = vds_domain::metrics::TimeRange::LastDay;
     let mut analytics_period = AnalyticsPeriod::LastSevenDays;
     let mut analytics_metric = vds_domain::analytics::AnalyticsMetric::Visitors;
@@ -1186,7 +1258,248 @@ async fn worker(
                     window.set_alert_rules(view_model::model(rules));
                 });
             }
+
+            // --- files ---
+            Intent::OpenFiles => {
+                let Some(id) = open_server else { continue };
+                let Ok(server) = application.servers.get(id).await else {
+                    continue;
+                };
+
+                let name = server.name.clone();
+                open_file = None;
+                push(&window, move |window| {
+                    window.set_files_server_name(name.into());
+                    window.set_open_file_path(SharedString::new());
+                    window.set_files_error(SharedString::new());
+                    window.set_files_busy(true);
+                    window.set_showing_files(true);
+                });
+
+                // Where the server says its sites live. This also decides where browsing
+                // starts, so that opening the browser lands somewhere useful rather than
+                // in whatever directory happens to exist.
+                let roots = application.files.site_roots(id).await.unwrap_or_default();
+                if let Some(first) = roots.first() {
+                    browse_path = first.path.clone();
+                }
+                let rows: Vec<SiteFolder> = roots.iter().map(view_model::site_folder_row).collect();
+                push(&window, move |window| {
+                    window.set_site_folders(view_model::model(rows));
+                });
+
+                // `/var/www` is a good guess and not a certainty. A machine that does
+                // not have it is not a machine you should be unable to browse.
+                match show_listing(&application, &window, id, &browse_path).await {
+                    Some(path) => browse_path = path,
+                    None => {
+                        if let Some(path) = show_listing(&application, &window, id, "/").await {
+                            browse_path = path;
+                        }
+                    }
+                }
+            }
+
+            Intent::BrowseTo(path) => {
+                let Some(id) = open_server else { continue };
+                open_file = None;
+                push(&window, |window| {
+                    window.set_open_file_path(SharedString::new());
+                    window.set_files_busy(true);
+                });
+                // Only a listing that succeeded moves us: a failed navigation must leave
+                // the browser where it was, not in a folder it could not read.
+                if let Some(path) = show_listing(&application, &window, id, &path).await {
+                    browse_path = path;
+                }
+            }
+
+            Intent::RefreshFiles => {
+                let Some(id) = open_server else { continue };
+                push(&window, |window| window.set_files_busy(true));
+                show_listing(&application, &window, id, &browse_path).await;
+            }
+
+            Intent::OpenFileEntry { name, is_directory } => {
+                let Some(id) = open_server else { continue };
+                let path = files::join(&browse_path, &name);
+
+                if is_directory {
+                    push(&window, |window| window.set_files_busy(true));
+                    if let Some(path) = show_listing(&application, &window, id, &path).await {
+                        browse_path = path;
+                    }
+                    continue;
+                }
+
+                push(&window, |window| {
+                    window.set_files_busy(true);
+                    window.set_files_error(SharedString::new());
+                });
+                match application.files.read(id, &path).await {
+                    Ok(contents) => {
+                        open_file = Some(path.clone());
+                        let info = file_info(&contents);
+                        push(&window, move |window| {
+                            window.set_open_file_path(path.into());
+                            window.set_open_file_info(info.into());
+                            window.set_open_file_truncated(contents.truncated);
+                            window.set_open_file_text(contents.text.clone().into());
+                            // The saved copy is what "has this changed" is measured
+                            // against, so it is set from the same read.
+                            window.set_open_file_saved_text(contents.text.into());
+                            window.set_files_busy(false);
+                        });
+                    }
+                    Err(error) => {
+                        let message = view_model::describe_file_error(&error);
+                        push(&window, move |window| {
+                            window.set_files_error(message.into());
+                            window.set_files_busy(false);
+                        });
+                    }
+                }
+            }
+
+            Intent::SaveOpenFile(text) => {
+                let Some(id) = open_server else { continue };
+                let Some(path) = open_file.clone() else {
+                    continue;
+                };
+
+                push(&window, |window| {
+                    window.set_files_busy(true);
+                    window.set_files_error(SharedString::new());
+                });
+                match application.files.write(id, &path, &text).await {
+                    Ok(()) => push(&window, move |window| {
+                        // Only now does the saved copy move. Until the server confirmed
+                        // it, the editor was right to say there were unsaved changes.
+                        window.set_open_file_saved_text(text.into());
+                        window.set_files_busy(false);
+                    }),
+                    Err(error) => {
+                        let message = view_model::describe_file_error(&error);
+                        push(&window, move |window| {
+                            window.set_files_error(message.into());
+                            window.set_files_busy(false);
+                        });
+                    }
+                }
+            }
+
+            Intent::CloseOpenFile => {
+                let Some(id) = open_server else { continue };
+                open_file = None;
+                push(&window, |window| {
+                    window.set_open_file_path(SharedString::new());
+                    window.set_open_file_text(SharedString::new());
+                    window.set_open_file_saved_text(SharedString::new());
+                    window.set_files_busy(true);
+                });
+                show_listing(&application, &window, id, &browse_path).await;
+            }
+
+            Intent::DeleteFileEntry(name) => {
+                let Some(id) = open_server else { continue };
+                let path = files::join(&browse_path, &name);
+
+                push(&window, |window| {
+                    window.set_files_busy(true);
+                    window.set_files_error(SharedString::new());
+                });
+                if let Err(error) = application.files.delete(id, &path).await {
+                    let message = view_model::describe_file_error(&error);
+                    push(&window, move |window| {
+                        window.set_files_error(message.into())
+                    });
+                }
+                // Listed again either way: after a failure the row is still there, and
+                // showing it gone would be a lie.
+                show_listing(&application, &window, id, &browse_path).await;
+            }
+
+            Intent::CreateFileEntry { name, is_directory } => {
+                let Some(id) = open_server else { continue };
+                let path = files::join(&browse_path, name.trim());
+
+                push(&window, |window| {
+                    window.set_files_busy(true);
+                    window.set_files_error(SharedString::new());
+                });
+                let outcome = if is_directory {
+                    application.files.create_directory(id, &path).await
+                } else {
+                    // An empty file. Creating one with content would mean guessing what
+                    // belongs in it; this makes it and lets the editor fill it.
+                    application.files.write(id, &path, "").await
+                };
+                if let Err(error) = outcome {
+                    let message = view_model::describe_file_error(&error);
+                    push(&window, move |window| {
+                        window.set_files_error(message.into())
+                    });
+                }
+                show_listing(&application, &window, id, &browse_path).await;
+            }
         }
+    }
+}
+
+/// Lists one directory and shows it, returning the path that was actually read.
+///
+/// `None` on failure, which is what keeps a failed navigation from moving the browser
+/// into a folder it could not read.
+async fn show_listing(
+    application: &Arc<Application>,
+    window: &Weak<AppWindow>,
+    server: ServerId,
+    path: &str,
+) -> Option<String> {
+    let now = chrono::Utc::now();
+    match application.files.list(server, path).await {
+        Ok(listing) => {
+            let path = listing.path.clone();
+            push(window, move |window| {
+                window.set_files_path(listing.path.into());
+                // Rows are built here because a `SharedString` cannot cross a thread.
+                window.set_file_entries(view_model::model(
+                    listing
+                        .entries
+                        .iter()
+                        .map(|entry| view_model::file_entry_row(entry, now))
+                        .collect::<Vec<_>>(),
+                ));
+                window.set_files_error(SharedString::new());
+                window.set_files_busy(false);
+            });
+            Some(path)
+        }
+        Err(error) => {
+            let message = view_model::describe_file_error(&error);
+            let attempted = path.to_owned();
+            push(window, move |window| {
+                // The path that failed is still shown. "Where am I" is the question every
+                // mistake with a file browser starts with, and a blank box does not
+                // answer it.
+                window.set_files_path(attempted.into());
+                window.set_file_entries(view_model::model(Vec::<FileEntry>::new()));
+                window.set_files_error(message.into());
+                window.set_files_busy(false);
+            });
+            None
+        }
+    }
+}
+
+/// The line under an open file's name: its size, and whether all of it is here.
+fn file_info(contents: &vds_domain::ports::FileContents) -> String {
+    let strings = i18n::strings();
+    let size = format::bytes(contents.size_bytes as f64);
+    if contents.truncated {
+        format!("{size} · {}", strings.files_read_only)
+    } else {
+        size
     }
 }
 

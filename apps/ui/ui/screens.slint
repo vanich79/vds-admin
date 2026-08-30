@@ -4,7 +4,7 @@
 // intents as callbacks. No screen performs I/O, computes a percentage, or decides what
 // an absent value looks like.
 
-import { ScrollView, LineEdit, ComboBox, CheckBox } from "std-widgets.slint";
+import { ScrollView, LineEdit, TextEdit, ComboBox, CheckBox } from "std-widgets.slint";
 import { Theme, Layout } from "theme.slint";
 import { L } from "strings.slint";
 import {
@@ -12,8 +12,8 @@ import {
     StatusBadge
 } from "components.slint";
 import {
-    AlertRow, ChartData, ContainerRow, EventRow, ProcessRow, ServerDetail, ServerRow,
-    ServiceRow, StatCard, TopPageRow, WebsiteCard, WebsiteDetail
+    AlertRow, ChartData, ContainerRow, EventRow, FileEntry, ProcessRow, ServerDetail,
+    ServerRow, ServiceRow, SiteFolder, StatCard, TopPageRow, WebsiteCard, WebsiteDetail
 } from "models.slint";
 
 // --- Shared ------------------------------------------------------------------------
@@ -493,6 +493,7 @@ export component ServerDetailScreen inherits VerticalLayout {
     callback forget-host-key();
     callback delete-server();
     callback edit-server();
+    callback open-files();
 
     // Two-step, because both actions on the Settings tab are irreversible and neither
     // has an undo. Which one is armed is tracked here rather than in a modal: a
@@ -531,6 +532,10 @@ export component ServerDetailScreen inherits VerticalLayout {
         }
         Rectangle { horizontal-stretch: 1; }
         StatusBadge { status: root.server.status; label: root.server.status-label; }
+        FlatButton {
+            text: L.nav_files;
+            clicked => { root.open-files(); }
+        }
         FlatButton {
             text: L.action_refresh;
             clicked => { root.refresh(); }
@@ -1571,6 +1576,374 @@ export component SettingsScreen inherits ScrollView {
                 text: L.set_debug_mode;
                 checked <=> root.debug-mode;
             }
+        }
+    }
+}
+
+// --- Files ---------------------------------------------------------------------------
+
+// Browsing and editing files on one server.
+//
+// The only screen that changes anything on a machine, which shapes three of its
+// decisions. Deletion is armed per row and asks in place rather than in a modal, because
+// a confirmation you have to read beats one you dismiss by reflex. A file that arrived
+// truncated cannot be saved at all — saving the first megabyte back would destroy the
+// rest. And the path is always visible, because "which folder am I in" is the question
+// every mistake with a file browser starts with.
+export component FilesScreen inherits VerticalLayout {
+    in property <string> server-name;
+    in property <string> path;
+    in property <[FileEntry]> entries;
+    in property <[SiteFolder]> site-folders;
+    in property <bool> busy;
+    in property <string> error;
+
+    // The open file. An empty path means the listing is showing instead.
+    in property <string> file-path;
+    in property <string> file-info;
+    in property <bool> file-truncated;
+    // `in-out` because the editor writes into it as the user types; the saved copy beside
+    // it is what makes "has this changed" answerable without asking the server.
+    in-out property <string> file-text;
+    in property <string> file-saved-text;
+
+    callback back();
+    callback navigate(string);
+    callback open-entry(string, bool);
+    callback save-file(string);
+    callback close-file();
+    callback delete-entry(string);
+    callback create-entry(string, bool);
+    callback refresh();
+
+    // Which row is asking to be confirmed, by name. One at a time, and cleared by any
+    // navigation, so a confirmation cannot outlive the folder it was armed in.
+    property <string> confirming: "";
+    property <bool> creating: false;
+    property <bool> creating-folder: true;
+    property <string> new-name: "";
+
+    property <bool> dirty: root.file-text != root.file-saved-text;
+
+    padding: Theme.space-lg;
+    spacing: Theme.space-md;
+
+    // --- header ---
+    HorizontalLayout {
+        spacing: Theme.space-sm;
+
+        FlatButton {
+            text: L.action_back;
+            clicked => {
+                if (root.file-path != "") {
+                    root.close-file();
+                } else {
+                    root.back();
+                }
+            }
+        }
+        VerticalLayout {
+            spacing: 1px;
+            Text {
+                text: root.file-path != "" ? root.file-path : L.files_title;
+                font-size: Theme.text-lg;
+                font-weight: 700;
+                color: Theme.text;
+                overflow: elide;
+            }
+            Text {
+                text: root.file-path != "" ? root.file-info : root.server-name;
+                font-size: Theme.text-xs;
+                color: Theme.text-faint;
+            }
+        }
+        Rectangle { horizontal-stretch: 1; }
+
+        if root.file-path != "" && !root.file-truncated: FlatButton {
+            text: root.dirty ? L.action_save : L.files_saved;
+            primary: root.dirty;
+            enabled: root.dirty && !root.busy;
+            clicked => { root.save-file(root.file-text); }
+        }
+        if root.file-path == "": FlatButton {
+            text: L.action_refresh;
+            enabled: !root.busy;
+            clicked => { root.confirming = ""; root.refresh(); }
+        }
+    }
+
+    if root.error != "": Rectangle {
+        background: Theme.status-critical.with-alpha(0.12);
+        border-radius: Theme.radius-sm;
+        border-width: 1px;
+        border-color: Theme.status-critical.with-alpha(0.4);
+        VerticalLayout {
+            padding: Theme.space-sm;
+            Text {
+                text: root.error;
+                font-size: Theme.text-sm;
+                color: Theme.status-critical;
+                wrap: word-wrap;
+            }
+        }
+    }
+
+    // --- editor ---
+    if root.file-path != "": VerticalLayout {
+        spacing: Theme.space-sm;
+        vertical-stretch: 1;
+
+        if root.file-truncated: Rectangle {
+            background: Theme.status-warning.with-alpha(0.12);
+            border-radius: Theme.radius-sm;
+            border-width: 1px;
+            border-color: Theme.status-warning.with-alpha(0.4);
+            VerticalLayout {
+                padding: Theme.space-sm;
+                Text {
+                    text: L.files_truncated;
+                    font-size: Theme.text-sm;
+                    color: Theme.status-warning;
+                    wrap: word-wrap;
+                }
+            }
+        }
+
+        if root.dirty: Text {
+            text: L.files_unsaved;
+            font-size: Theme.text-xs;
+            color: Theme.status-warning;
+        }
+
+        Rectangle {
+            vertical-stretch: 1;
+            border-radius: Theme.radius-sm;
+            border-width: 1px;
+            border-color: Theme.border;
+            background: Theme.surface-raised;
+            clip: true;
+
+            VerticalLayout {
+                padding: 1px;
+                TextEdit {
+                    text <=> root.file-text;
+                    // A truncated file is shown so it can be read, and locked so it
+                    // cannot be saved back over the whole of itself.
+                    read-only: root.file-truncated;
+                    wrap: no-wrap;
+                }
+            }
+        }
+    }
+
+    // --- listing ---
+    if root.file-path == "": VerticalLayout {
+        spacing: Theme.space-sm;
+        vertical-stretch: 1;
+
+        // The site folders, when the server's own configuration named any.
+        if root.site-folders.length > 0: VerticalLayout {
+            spacing: Theme.space-xs;
+            Text {
+                text: L.files_site_folders;
+                font-size: Theme.text-xs;
+                font-weight: 600;
+                color: Theme.text-faint;
+            }
+            HorizontalLayout {
+                spacing: Theme.space-xs;
+                for folder in root.site-folders: FlatButton {
+                    text: folder.label;
+                    primary: folder.path == root.path;
+                    clicked => { root.confirming = ""; root.navigate(folder.path); }
+                }
+                Rectangle { horizontal-stretch: 1; }
+            }
+        }
+
+        // Where we are, and the way out of it.
+        HorizontalLayout {
+            spacing: Theme.space-sm;
+
+            FlatButton {
+                text: L.files_up;
+                enabled: root.path != "/";
+                clicked => { root.confirming = ""; root.navigate(root.path + "/.."); }
+            }
+            Rectangle {
+                horizontal-stretch: 1;
+                border-radius: Theme.radius-sm;
+                background: Theme.surface-raised;
+                border-width: 1px;
+                border-color: Theme.border;
+                HorizontalLayout {
+                    padding-left: Theme.space-sm;
+                    padding-right: Theme.space-sm;
+                    Text {
+                        text: root.path;
+                        font-size: Theme.text-sm;
+                        color: Theme.text;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                }
+            }
+            FlatButton {
+                text: L.files_new_folder;
+                enabled: !root.busy;
+                clicked => {
+                    root.creating = true;
+                    root.creating-folder = true;
+                    root.new-name = "";
+                }
+            }
+            FlatButton {
+                text: L.files_new_file;
+                enabled: !root.busy;
+                clicked => {
+                    root.creating = true;
+                    root.creating-folder = false;
+                    root.new-name = "";
+                }
+            }
+        }
+
+        if root.creating: HorizontalLayout {
+            spacing: Theme.space-sm;
+
+            LineEdit {
+                placeholder-text: root.creating-folder ? L.files_folder_name : L.files_file_name;
+                text <=> root.new-name;
+                accepted => {
+                    if (root.new-name != "") {
+                        root.create-entry(root.new-name, root.creating-folder);
+                        root.creating = false;
+                    }
+                }
+            }
+            FlatButton {
+                text: L.action_add;
+                primary: true;
+                enabled: root.new-name != "";
+                clicked => {
+                    root.create-entry(root.new-name, root.creating-folder);
+                    root.creating = false;
+                }
+            }
+            FlatButton {
+                text: L.action_cancel;
+                clicked => { root.creating = false; }
+            }
+        }
+
+        if root.entries.length == 0 && !root.busy: EmptyState {
+            title: L.files_empty;
+            vertical-stretch: 1;
+        }
+
+        if root.entries.length > 0: ScrollView {
+            vertical-stretch: 1;
+            VerticalLayout {
+                spacing: 1px;
+
+                for entry in root.entries: Rectangle {
+                    height: row.preferred-height;
+                    background: touch.has-hover ? Theme.surface-hover : Colors.transparent;
+                    border-radius: Theme.radius-sm;
+
+                    touch := TouchArea {
+                        mouse-cursor: entry.is-directory || entry.can-open
+                            ? MouseCursor.pointer
+                            : MouseCursor.default;
+                        clicked => {
+                            root.confirming = "";
+                            if (entry.is-directory || entry.can-open) {
+                                root.open-entry(entry.name, entry.is-directory);
+                            }
+                        }
+                    }
+
+                    row := HorizontalLayout {
+                        padding: Theme.space-sm;
+                        spacing: Theme.space-sm;
+
+                        Text {
+                            text: entry.is-directory ? "▶" : (entry.kind == "symlink" ? "↳" : "·");
+                            font-size: Theme.text-sm;
+                            color: Theme.text-faint;
+                            vertical-alignment: center;
+                            width: 12px;
+                        }
+                        VerticalLayout {
+                            horizontal-stretch: 1;
+                            spacing: 1px;
+                            Text {
+                                text: entry.name;
+                                font-size: Theme.text-sm;
+                                color: Theme.text;
+                                overflow: elide;
+                            }
+                            if entry.detail != "": Text {
+                                text: entry.detail;
+                                font-size: Theme.text-xs;
+                                color: Theme.text-faint;
+                                overflow: elide;
+                            }
+                        }
+
+                        if !Layout.compact: Text {
+                            text: entry.mode + "  " + entry.owner;
+                            font-size: Theme.text-xs;
+                            color: Theme.text-faint;
+                            vertical-alignment: center;
+                        }
+                        if !Layout.compact: Text {
+                            text: entry.modified;
+                            font-size: Theme.text-xs;
+                            color: Theme.text-faint;
+                            vertical-alignment: center;
+                            width: 130px;
+                            horizontal-alignment: right;
+                        }
+                        Text {
+                            text: entry.size;
+                            font-size: Theme.text-xs;
+                            color: Theme.text-faint;
+                            vertical-alignment: center;
+                            width: 80px;
+                            horizontal-alignment: right;
+                        }
+
+                        // Armed in place rather than in a modal: the name being deleted
+                        // stays on screen beside the question.
+                        if root.confirming != entry.name: FlatButton {
+                            text: L.files_delete_title;
+                            enabled: !root.busy;
+                            clicked => { root.confirming = entry.name; }
+                        }
+                        if root.confirming == entry.name: FlatButton {
+                            text: L.action_cancel;
+                            clicked => { root.confirming = ""; }
+                        }
+                        if root.confirming == entry.name: FlatButton {
+                            text: L.files_delete_title;
+                            primary: true;
+                            enabled: !root.busy;
+                            clicked => {
+                                root.confirming = "";
+                                root.delete-entry(entry.name);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if root.confirming != "": Text {
+            text: L.files_delete_folder_note;
+            font-size: Theme.text-xs;
+            color: Theme.text-faint;
+            wrap: word-wrap;
         }
     }
 }

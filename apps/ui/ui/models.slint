@@ -158,3 +158,32 @@ export struct WebsiteDetail {
     has-analytics: bool,
     analytics-updated: string,
 }
+
+/// One entry in a directory listing.
+///
+/// Everything is pre-formatted: sizes, dates and the symlink's target are turned into
+/// text on the Rust side, where the locale and the byte units already live. The view
+/// decides layout, never meaning.
+export struct FileEntry {
+    name: string,
+    /// `file`, `directory`, `symlink` or `other` — drives the icon and what a click does.
+    kind: string,
+    is-directory: bool,
+    /// True only for a regular file, which is the only thing that can be opened.
+    can-open: bool,
+    size: string,
+    modified: string,
+    mode: string,
+    owner: string,
+    /// Where a symlink points, phrased for reading. Empty for everything else.
+    detail: string,
+}
+
+/// A folder the server's web server configuration says it is serving.
+export struct SiteFolder {
+    /// The first host name, or the path when the virtual host has no name.
+    label: string,
+    path: string,
+    /// The configuration file this was found in, so a puzzling entry can be traced.
+    source: string,
+}
