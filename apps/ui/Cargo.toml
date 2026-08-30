@@ -66,6 +66,7 @@ vds-composition.workspace = true
 async-trait.workspace = true
 chrono.workspace = true
 slint = { workspace = true, features = ["backend-winit", "renderer-software"] }
+copypasta = "0.10"
 tokio = { workspace = true }
 tokio-util.workspace = true
 tracing.workspace = true

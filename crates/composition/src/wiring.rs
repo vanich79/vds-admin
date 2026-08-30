@@ -326,6 +326,7 @@ impl Application {
         let provisioning = Arc::new(ProvisioningService::new(
             Arc::clone(&servers),
             Arc::clone(&websites),
+            Arc::clone(&analytics_repository) as Arc<dyn AnalyticsRepository>,
             Arc::clone(&secrets),
             Arc::clone(&clock),
         ));

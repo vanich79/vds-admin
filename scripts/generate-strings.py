@@ -415,7 +415,25 @@ ENTRIES = [
      "Введите пароль, ключ или токен для этого подключения"),
     ("err_credential_store", "The credential could not be saved: {}",
      "Не удалось сохранить учётные данные: {}"),
-    ("err_save_failed", "Could not save: {}", "Не удалось сохранить: {}"),]
+    ("err_save_failed", "Could not save: {}", "Не удалось сохранить: {}"),
+
+    ("set_analytics_hint",
+     "The token is entered once and covers every counter the account can see. Each website’s counter number is set on its own Analytics tab.",
+     "Токен вводится один раз и покрывает все счётчики аккаунта. Номер счётчика каждого сайта указывается на его вкладке «Аналитика»."),
+    ("set_token_stored", "Token saved", "Токен сохранён"),
+
+    ("wd_connect_analytics", "Connect Yandex.Metrica", "Подключить Яндекс.Метрику"),
+    ("wd_counter_hint", "The counter number for this website — digits only",
+     "Номер счётчика этого сайта — только цифры"),
+    ("wd_counter", "Counter", "Счётчик"),
+    ("action_connect", "Connect", "Подключить"),
+    ("action_disconnect", "Disconnect", "Отключить"),
+
+    ("err_counter_empty", "Enter the counter number", "Укажите номер счётчика"),
+    ("err_counter_malformed", "A counter number is digits only — not a link",
+     "Номер счётчика — только цифры, не ссылка"),
+    ("err_no_analytics_token", "Save the OAuth token in Settings first",
+     "Сначала сохраните OAuth-токен в настройках"),]
 
 
 def slint_global():

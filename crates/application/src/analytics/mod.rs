@@ -124,6 +124,20 @@ impl AnalyticsService {
         }
     }
 
+    /// The provider a new integration should use.
+    ///
+    /// Exists so the interface does not have to name a provider crate: the composition
+    /// root decides what is registered, and the UI asks. The demo provider is skipped
+    /// even when it is compiled in, so a development build cannot connect a real website
+    /// to fabricated data by accident.
+    pub fn default_provider(&self) -> Option<ProviderId> {
+        self.providers
+            .available()
+            .into_iter()
+            .map(|(id, _)| id)
+            .find(|id| id.as_str() != "demo")
+    }
+
     /// One website's series for a metric, cache-first.
     ///
     /// Falls back to the provider only when nothing is cached, and returns `None` — never

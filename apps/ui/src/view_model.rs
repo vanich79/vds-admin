@@ -364,6 +364,9 @@ pub fn describe_provisioning_error(error: &ProvisioningError) -> String {
             W::InvalidExpectedStatus => strings.err_status_invalid.to_owned(),
         },
         ProvisioningError::MissingCredential => strings.err_credential_missing.to_owned(),
+        ProvisioningError::EmptyCounter => strings.err_counter_empty.to_owned(),
+        ProvisioningError::MalformedCounter => strings.err_counter_malformed.to_owned(),
+        ProvisioningError::MissingAnalyticsToken => strings.err_no_analytics_token.to_owned(),
         // These two carry a cause from the operating system or the database. It is not
         // translated — it comes from outside — but the sentence around it is, so the line
         // still reads as one language with a quotation in it.

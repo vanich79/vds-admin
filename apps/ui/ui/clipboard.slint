@@ -1,0 +1,31 @@
+// Clipboard access, and the reason it has to exist.
+//
+// Slint matches keyboard shortcuts on the *character* a key produces, not on the physical
+// key:
+//
+//     match self.key_event.text.as_str() {
+//         "v" => Some(StandardShortcut::Paste),
+//
+// On a Russian layout Ctrl+V produces "м", nothing matches, and paste silently does
+// nothing — in an application whose own interface is in Russian, being used to paste SSH
+// keys. Right-click still works, which makes it look like a quirk rather than a bug.
+//
+// So the affected shortcuts are caught before they reach the text input and served from
+// here. The Latin letters keep working through Slint's own handling; these are the
+// Cyrillic characters that sit on the same physical keys.
+
+export global Clipboard {
+    // Implemented in Rust: `copypasta`, which Slint's own backend already depends on.
+    pure callback read() -> string;
+    callback write(string);
+
+    /// Whether `text` is the Cyrillic character produced by the V key.
+    public pure function is-paste(text: string) -> bool {
+        return text == "м" || text == "М";
+    }
+
+    /// The Cyrillic character produced by the C key.
+    public pure function is-copy(text: string) -> bool {
+        return text == "с" || text == "С";
+    }
+}

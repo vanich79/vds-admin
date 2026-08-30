@@ -908,10 +908,18 @@ export component WebsiteDetailScreen inherits VerticalLayout {
     in property <[string]> periods;
     in-out property <int> tab: 0;
     in-out property <int> period: 2;
+    /// The counter this website is connected to, empty when it is not.
+    in property <string> analytics-counter;
+    /// Whether the shared OAuth token has been saved. Without it a counter cannot be
+    /// read, so the form says so rather than accepting a number that will not work.
+    in property <bool> analytics-token-saved;
+    in property <string> analytics-error;
 
     callback back();
     callback period-changed(int);
     callback refresh-screenshot();
+    callback connect-analytics(string);
+    callback disconnect-analytics();
 
     property <[string]> tabs: [L.tab_overview, L.nav_analytics, L.tab_availability, L.tab_ssl, L.tab_events];
 
@@ -999,9 +1007,46 @@ export component WebsiteDetailScreen inherits VerticalLayout {
             if root.tab == 1: VerticalLayout {
                 spacing: Theme.space-md;
 
-                if !root.website.has-analytics: EmptyState {
-                    title: L.dash_no_analytics;
-                    detail: L.wd_no_analytics;
+                // Not connected: offer to connect it here rather than sending the user
+                // to a settings screen that cannot know which website they meant.
+                if !root.website.has-analytics: Card {
+                    title: L.wd_connect_analytics;
+                    subtitle: root.analytics-token-saved
+                        ? L.wd_counter_hint
+                        : L.err_no_analytics_token;
+
+                    HorizontalLayout {
+                        spacing: Theme.space-md;
+
+                        Text {
+                            text: L.set_counter_id;
+                            font-size: Theme.text-sm;
+                            color: Theme.text-muted;
+                            width: 160px;
+                            vertical-alignment: center;
+                        }
+
+                        counter-input := LineEdit {
+                            placeholder-text: "54028423";
+                            enabled: root.analytics-token-saved;
+                            horizontal-stretch: 1;
+                            accepted => { root.connect-analytics(self.text); }
+                        }
+
+                        FlatButton {
+                            text: L.action_connect;
+                            primary: true;
+                            enabled: root.analytics-token-saved;
+                            clicked => { root.connect-analytics(counter-input.text); }
+                        }
+                    }
+
+                    if root.analytics-error != "": Text {
+                        text: root.analytics-error;
+                        font-size: Theme.text-sm;
+                        color: Theme.status-critical;
+                        wrap: word-wrap;
+                    }
                 }
 
                 if root.website.has-analytics: VerticalLayout {
@@ -1019,6 +1064,23 @@ export component WebsiteDetailScreen inherits VerticalLayout {
                             options: root.periods;
                             selected <=> root.period;
                             changed(index) => { root.period-changed(index); }
+                        }
+                    }
+
+                    // Which counter these figures come from, and a way out. Without
+                    // this a wrong number can only be fixed by deleting the website.
+                    HorizontalLayout {
+                        spacing: Theme.space-sm;
+                        Text {
+                            text: L.wd_counter + " " + root.analytics-counter;
+                            font-size: Theme.text-xs;
+                            color: Theme.text-faint;
+                            vertical-alignment: center;
+                        }
+                        Rectangle { horizontal-stretch: 1; }
+                        FlatButton {
+                            text: L.action_disconnect;
+                            clicked => { root.disconnect-analytics(); }
                         }
                     }
 
@@ -1301,8 +1363,9 @@ export component SettingsScreen inherits ScrollView {
     in-out property <bool> notification-sound: false;
     in-out property <bool> debug-mode: false;
     in-out property <string> webhook-url;
-    in-out property <string> metrica-counter;
     in-out property <string> metrica-token;
+    in property <bool> analytics-token-saved;
+    in property <string> analytics-error;
 
     callback theme-changed(int);
     callback language-changed(int);
@@ -1350,15 +1413,15 @@ export component SettingsScreen inherits ScrollView {
             title: L.nav_analytics;
             subtitle: "Yandex.Metrica";
 
-            HorizontalLayout {
-                spacing: Theme.space-md;
-                Text { text: L.set_counter_id; font-size: Theme.text-sm; color: Theme.text-muted; width: 132px; vertical-alignment: center; }
-                LineEdit {
-                    placeholder-text: L.dlg_ph_counter;
-                    text <=> root.metrica-counter;
-                    horizontal-stretch: 1;
-                }
+            Text {
+                // Says where counters actually go, because the obvious place to look for
+                // them is here.
+                text: L.set_analytics_hint;
+                font-size: Theme.text-sm;
+                color: Theme.text-muted;
+                wrap: word-wrap;
             }
+
             HorizontalLayout {
                 spacing: Theme.space-md;
                 Text { text: L.set_oauth_token; font-size: Theme.text-sm; color: Theme.text-muted; width: 132px; vertical-alignment: center; }
@@ -1371,7 +1434,26 @@ export component SettingsScreen inherits ScrollView {
                 }
             }
             HorizontalLayout {
-                alignment: end;
+                spacing: Theme.space-md;
+
+                // Saving used to be silent whatever happened, so an empty token looked
+                // exactly like a successful save.
+                if root.analytics-error != "": Text {
+                    text: root.analytics-error;
+                    font-size: Theme.text-sm;
+                    color: Theme.status-critical;
+                    vertical-alignment: center;
+                    wrap: word-wrap;
+                }
+                if root.analytics-error == "" && root.analytics-token-saved: Text {
+                    text: L.set_token_stored;
+                    font-size: Theme.text-sm;
+                    color: Theme.status-healthy;
+                    vertical-alignment: center;
+                }
+
+                Rectangle { horizontal-stretch: 1; }
+
                 FlatButton {
                     text: L.action_save;
                     primary: true;

@@ -9,6 +9,7 @@
 // application layer, where they are tested.
 
 import { ScrollView, LineEdit, TextEdit, ComboBox, CheckBox } from "std-widgets.slint";
+import { Clipboard } from "clipboard.slint";
 import { Theme, Layout } from "theme.slint";
 import { L } from "strings.slint";
 import { FlatButton } from "components.slint";
@@ -48,22 +49,67 @@ component Field inherits HorizontalLayout {
         vertical-alignment: root.multiline ? top : center;
     }
 
-    if !root.multiline: LineEdit {
-        placeholder-text: root.placeholder;
-        input-type: root.secret ? InputType.password : InputType.text;
-        text <=> root.value;
+    // The FocusScope sees what the text input left unhandled, which is exactly where a
+    // Ctrl shortcut lands when the layout produced a Cyrillic character. See
+    // `clipboard.slint` for why this is necessary at all.
+    if !root.multiline: FocusScope {
         horizontal-stretch: 1;
+        // Capture phase, not bubble: it runs on the way *down* to the focused element,
+        // so the shortcut is seen before the text input decides what to do with it.
+        // The bubble phase is too late — Slint stops there for a Ctrl combination.
+        capture-key-pressed(event) => {
+            if (event.modifiers.control && Clipboard.is-paste(event.text)) {
+                root.value = Clipboard.read();
+                return accept;
+            }
+            if (event.modifiers.control && Clipboard.is-copy(event.text)) {
+                Clipboard.write(root.value);
+                return accept;
+            }
+            return reject;
+        }
+
+        // A FocusScope lays nothing out: without an inner layout its child keeps its
+        // own preferred size, and a TextEdit — which expects to be stretched — collapses
+        // to nothing. The single-line case survived only because LineEdit has a width of
+        // its own.
+        VerticalLayout {
+            LineEdit {
+                placeholder-text: root.placeholder;
+                input-type: root.secret ? InputType.password : InputType.text;
+                text <=> root.value;
+            }
+        }
     }
 
     // Not masked, deliberately. Every tool that accepts a pasted key shows it — and a
     // key hidden behind dots cannot be checked for a truncated paste, which is exactly
     // the mistake this field exists to prevent.
-    if root.multiline: TextEdit {
-        placeholder-text: root.placeholder;
-        text <=> root.value;
-        wrap: no-wrap;
-        height: 108px;
+    if root.multiline: FocusScope {
         horizontal-stretch: 1;
+        height: 108px;
+        // Capture phase, not bubble: it runs on the way *down* to the focused element,
+        // so the shortcut is seen before the text input decides what to do with it.
+        // The bubble phase is too late — Slint stops there for a Ctrl combination.
+        capture-key-pressed(event) => {
+            if (event.modifiers.control && Clipboard.is-paste(event.text)) {
+                root.value = Clipboard.read();
+                return accept;
+            }
+            if (event.modifiers.control && Clipboard.is-copy(event.text)) {
+                Clipboard.write(root.value);
+                return accept;
+            }
+            return reject;
+        }
+
+        VerticalLayout {
+            TextEdit {
+                placeholder-text: root.placeholder;
+                text <=> root.value;
+                wrap: no-wrap;
+            }
+        }
     }
 }
 
@@ -132,7 +178,10 @@ component DialogFrame inherits Rectangle {
             // it scrolls rather than pushing the buttons off a phone screen, where they
             // are the only way out of the modal.
             min-height: 300px;
-            max-height: 440px;
+            // Tall enough that the SSH form — which now carries a seven-line key field —
+            // fits without scrolling on a desktop. A short window still scrolls, which is
+            // what the cap is for.
+            max-height: 560px;
             vertical-stretch: 1;
 
             VerticalLayout {

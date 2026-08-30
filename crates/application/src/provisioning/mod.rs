@@ -16,10 +16,12 @@
 //! A secret whose owner is already gone is unreachable, which is the safe way round.
 
 use std::sync::Arc;
+use vds_domain::analytics::AnalyticsIntegration;
+use vds_domain::ids::ProviderId;
 use vds_domain::ids::{CredentialRef, ServerId, WebsiteId};
 use vds_domain::ports::{
-    Clock, RepositoryError, Secret, SecretKind, SecretStore, SecretStoreError, ServerRepository,
-    WebsiteRepository,
+    AnalyticsRepository, Clock, RepositoryError, Secret, SecretKind, SecretStore, SecretStoreError,
+    ServerRepository, WebsiteRepository,
 };
 use vds_domain::server::{
     AgentSettings, ConnectionSettings, Server, ServerValidationError, SshAuthKind, SshSettings,
@@ -35,6 +37,12 @@ pub enum ProvisioningError {
     InvalidWebsite(#[from] WebsiteValidationError),
     #[error("a credential is required for this connection mode")]
     MissingCredential,
+    #[error("enter the counter number")]
+    EmptyCounter,
+    #[error("a counter number is digits only")]
+    MalformedCounter,
+    #[error("save the analytics token before connecting a counter")]
+    MissingAnalyticsToken,
     #[error("could not store the credential: {0}")]
     Secrets(#[from] SecretStoreError),
     #[error("could not save: {0}")]
@@ -133,10 +141,23 @@ impl std::fmt::Debug for NewConnection {
     }
 }
 
-/// Creates and removes servers and websites.
+/// The credential that holds the analytics OAuth token.
+///
+/// Fixed rather than random, and this is the whole design decision: one Yandex account's
+/// token authorises every counter that account can see, so every website's integration
+/// points at the *same* secret. A stable reference is what lets the token be entered once,
+/// in settings, before any website has been connected — and what stops a second website
+/// from needing it again.
+///
+/// It is a well-known key in the OS keystore, the same way an application names its own
+/// keychain entry. Version 4 UUID shape so it cannot collide with a generated one.
+const ANALYTICS_CREDENTIAL: &str = "a1a1a1a1-0000-4000-8000-000000000001";
+
+/// Creates and removes servers, websites and analytics integrations.
 pub struct ProvisioningService {
     servers: Arc<dyn ServerRepository>,
     websites: Arc<dyn WebsiteRepository>,
+    analytics: Arc<dyn AnalyticsRepository>,
     secrets: Arc<dyn SecretStore>,
     clock: Arc<dyn Clock>,
 }
@@ -145,15 +166,145 @@ impl ProvisioningService {
     pub fn new(
         servers: Arc<dyn ServerRepository>,
         websites: Arc<dyn WebsiteRepository>,
+        analytics: Arc<dyn AnalyticsRepository>,
         secrets: Arc<dyn SecretStore>,
         clock: Arc<dyn Clock>,
     ) -> Self {
         Self {
             servers,
             websites,
+            analytics,
             secrets,
             clock,
         }
+    }
+
+    /// The handle under which the analytics token is kept.
+    fn analytics_credential() -> CredentialRef {
+        // The constant is a literal this crate controls, so a parse failure is a
+        // programming error rather than anything a user can cause. Falling back to a
+        // fresh handle keeps it from being a panic; the token would then simply need
+        // entering again, which is recoverable.
+        CredentialRef::parse(ANALYTICS_CREDENTIAL).unwrap_or_else(|_| CredentialRef::new())
+    }
+
+    /// Saves the analytics OAuth token.
+    ///
+    /// Entered once and shared by every counter, so this is deliberately separate from
+    /// connecting an individual website.
+    pub async fn save_analytics_token(&self, token: Secret) -> Result<(), ProvisioningError> {
+        // `expose` yields bytes, and an all-whitespace token is as useless as an empty
+        // one: it is what a stray paste of a blank line produces.
+        if token.expose().iter().all(|byte| byte.is_ascii_whitespace()) {
+            return Err(ProvisioningError::MissingCredential);
+        }
+
+        self.secrets
+            .store(
+                Self::analytics_credential(),
+                SecretKind::AnalyticsToken,
+                token,
+            )
+            .await
+            .map_err(ProvisioningError::Secrets)
+    }
+
+    /// Whether a token has been saved.
+    ///
+    /// Used by the interface to say "enter the token first" rather than letting someone
+    /// connect a counter that cannot be read.
+    pub async fn has_analytics_token(&self) -> bool {
+        self.secrets
+            .contains(Self::analytics_credential(), SecretKind::AnalyticsToken)
+            .await
+            .unwrap_or(false)
+    }
+
+    /// Points a website at a provider's counter.
+    ///
+    /// Replaces any existing integration for the same website and provider rather than
+    /// adding a second one: a website has one counter per provider, and silently
+    /// accumulating duplicates would double every figure on the dashboard.
+    pub async fn connect_analytics(
+        &self,
+        website_id: WebsiteId,
+        provider: ProviderId,
+        counter: &str,
+    ) -> Result<AnalyticsIntegration, ProvisioningError> {
+        let counter = counter.trim();
+        if counter.is_empty() {
+            return Err(ProvisioningError::EmptyCounter);
+        }
+        // Every provider this targets identifies a counter numerically. Catching a pasted
+        // URL or a stray space here gives a clear message instead of an authentication
+        // failure hours later.
+        if !counter.chars().all(|c| c.is_ascii_digit()) {
+            return Err(ProvisioningError::MalformedCounter);
+        }
+
+        if !self.has_analytics_token().await {
+            return Err(ProvisioningError::MissingAnalyticsToken);
+        }
+
+        // Confirms the website exists before writing anything that references it.
+        self.websites
+            .get(website_id)
+            .await
+            .map_err(ProvisioningError::Repository)?;
+
+        let existing = self
+            .analytics
+            .list_integrations_for_website(website_id)
+            .await
+            .map_err(ProvisioningError::Repository)?
+            .into_iter()
+            .find(|i| i.provider == provider);
+
+        let integration = match existing {
+            Some(mut integration) => {
+                integration.external_id = counter.to_owned();
+                integration.credential_ref = Self::analytics_credential();
+                integration.enabled = true;
+                integration
+            }
+            None => AnalyticsIntegration::new(
+                website_id,
+                provider,
+                counter,
+                Self::analytics_credential(),
+                self.clock.now(),
+            ),
+        };
+
+        self.analytics
+            .save_integration(&integration)
+            .await
+            .map_err(ProvisioningError::Repository)?;
+
+        Ok(integration)
+    }
+
+    /// Removes a website's integration with a provider.
+    ///
+    /// The shared token is left alone: other websites are still using it.
+    pub async fn disconnect_analytics(
+        &self,
+        website_id: WebsiteId,
+        provider: &ProviderId,
+    ) -> Result<(), ProvisioningError> {
+        let integrations = self
+            .analytics
+            .list_integrations_for_website(website_id)
+            .await
+            .map_err(ProvisioningError::Repository)?;
+
+        for integration in integrations.iter().filter(|i| i.provider == *provider) {
+            self.analytics
+                .delete_integration(integration.id)
+                .await
+                .map_err(ProvisioningError::Repository)?;
+        }
+        Ok(())
     }
 
     /// Adds a server, storing its credential in the secret store.
@@ -333,7 +484,9 @@ fn normalise_url(raw: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testing::{FakeSecretStore, FakeServerRepository, FakeWebsiteRepository};
+    use crate::testing::{
+        FakeAnalyticsRepository, FakeSecretStore, FakeServerRepository, FakeWebsiteRepository,
+    };
     use chrono::{DateTime, Utc};
     use vds_domain::ports::FixedClock;
 
@@ -346,16 +499,19 @@ mod tests {
         servers: Arc<FakeServerRepository>,
         websites: Arc<FakeWebsiteRepository>,
         secrets: Arc<FakeSecretStore>,
+        analytics: Arc<FakeAnalyticsRepository>,
     }
 
     fn harness() -> Harness {
         let servers = Arc::new(FakeServerRepository::new());
         let websites = Arc::new(FakeWebsiteRepository::new());
         let secrets = Arc::new(FakeSecretStore::new());
+        let analytics = Arc::new(FakeAnalyticsRepository::new());
 
         let service = ProvisioningService::new(
             Arc::clone(&servers) as Arc<dyn ServerRepository>,
             Arc::clone(&websites) as Arc<dyn WebsiteRepository>,
+            Arc::clone(&analytics) as Arc<dyn AnalyticsRepository>,
             Arc::clone(&secrets) as Arc<dyn SecretStore>,
             Arc::new(FixedClock::new(at(1_000))),
         );
@@ -365,6 +521,7 @@ mod tests {
             servers,
             websites,
             secrets,
+            analytics,
         }
     }
 
@@ -778,5 +935,242 @@ mod tests {
         );
         assert!(rendered.contains("<redacted>"));
         assert!(rendered.contains("9443"), "the port is not a secret");
+    }
+
+    // --- analytics -------------------------------------------------------------------
+
+    fn yandex() -> ProviderId {
+        ProviderId::new("yandex_metrica")
+    }
+
+    async fn a_website(service: &ProvisioningService) -> WebsiteId {
+        service
+            .create_website(NewWebsite {
+                name: "Example".into(),
+                url: "https://example.com/".into(),
+                poll_interval_secs: 60,
+                expected_status: 200,
+                expected_text: None,
+                server_id: None,
+            })
+            .await
+            .expect("website created")
+            .id
+    }
+
+    #[tokio::test]
+    async fn a_counter_cannot_be_connected_before_the_token_is_saved() {
+        // Otherwise the integration exists, the scheduler starts polling it, and every
+        // refresh fails authentication — which reads to the user as "Metrica is broken".
+        let h = harness();
+        let website = a_website(&h.service).await;
+
+        let err = h
+            .service
+            .connect_analytics(website, yandex(), "54028423")
+            .await
+            .expect_err("must refuse");
+        assert!(matches!(err, ProvisioningError::MissingAnalyticsToken));
+    }
+
+    #[tokio::test]
+    async fn saving_the_token_then_connecting_a_counter_works() {
+        let h = harness();
+        let website = a_website(&h.service).await;
+
+        h.service
+            .save_analytics_token(Secret::from_string("oauth-token".to_owned()))
+            .await
+            .expect("token saved");
+        assert!(h.service.has_analytics_token().await);
+
+        let integration = h
+            .service
+            .connect_analytics(website, yandex(), "54028423")
+            .await
+            .expect("connected");
+
+        assert_eq!(integration.external_id, "54028423");
+        assert_eq!(integration.website_id, website);
+        assert!(integration.enabled);
+    }
+
+    #[tokio::test]
+    async fn every_website_shares_one_token_and_keeps_its_own_counter() {
+        // The point of the whole design: a Yandex account's token covers every counter it
+        // can see, so it is entered once and each site only needs its number.
+        let h = harness();
+        h.service
+            .save_analytics_token(Secret::from_string("oauth-token".to_owned()))
+            .await
+            .expect("token saved");
+
+        let first = a_website(&h.service).await;
+        let second = a_website(&h.service).await;
+
+        let a = h
+            .service
+            .connect_analytics(first, yandex(), "11111111")
+            .await
+            .expect("connected");
+        let b = h
+            .service
+            .connect_analytics(second, yandex(), "22222222")
+            .await
+            .expect("connected");
+
+        assert_ne!(a.external_id, b.external_id, "counters are per website");
+        assert_eq!(a.credential_ref, b.credential_ref, "the token is shared");
+    }
+
+    #[tokio::test]
+    async fn reconnecting_replaces_the_counter_rather_than_adding_a_second() {
+        // Two integrations for one website would double every figure on the dashboard.
+        let h = harness();
+        h.service
+            .save_analytics_token(Secret::from_string("oauth-token".to_owned()))
+            .await
+            .expect("token saved");
+        let website = a_website(&h.service).await;
+
+        h.service
+            .connect_analytics(website, yandex(), "11111111")
+            .await
+            .expect("connected");
+        h.service
+            .connect_analytics(website, yandex(), "22222222")
+            .await
+            .expect("reconnected");
+
+        let integrations = h
+            .analytics
+            .list_integrations_for_website(website)
+            .await
+            .expect("listed");
+        assert_eq!(integrations.len(), 1, "a second integration was created");
+        assert_eq!(integrations[0].external_id, "22222222");
+    }
+
+    #[tokio::test]
+    async fn a_counter_that_is_not_a_number_is_refused_with_a_clear_reason() {
+        // Pasting the counter's URL is the mistake this catches. Without it the failure
+        // surfaces hours later as an authentication error.
+        let h = harness();
+        h.service
+            .save_analytics_token(Secret::from_string("oauth-token".to_owned()))
+            .await
+            .expect("token saved");
+        let website = a_website(&h.service).await;
+
+        for bad in [
+            "https://metrika.yandex.ru/dashboard?id=54028423",
+            "540 284",
+            "abc",
+        ] {
+            let err = h
+                .service
+                .connect_analytics(website, yandex(), bad)
+                .await
+                .expect_err("must refuse");
+            assert!(
+                matches!(err, ProvisioningError::MalformedCounter),
+                "accepted {bad}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn an_empty_counter_is_refused_separately_from_a_malformed_one() {
+        let h = harness();
+        h.service
+            .save_analytics_token(Secret::from_string("oauth-token".to_owned()))
+            .await
+            .expect("token saved");
+        let website = a_website(&h.service).await;
+
+        let err = h
+            .service
+            .connect_analytics(website, yandex(), "   ")
+            .await
+            .expect_err("must refuse");
+        assert!(matches!(err, ProvisioningError::EmptyCounter));
+    }
+
+    #[tokio::test]
+    async fn surrounding_whitespace_on_a_counter_is_forgiven() {
+        // Copying a number out of the Metrica interface brings a space with it.
+        let h = harness();
+        h.service
+            .save_analytics_token(Secret::from_string("oauth-token".to_owned()))
+            .await
+            .expect("token saved");
+        let website = a_website(&h.service).await;
+
+        let integration = h
+            .service
+            .connect_analytics(website, yandex(), "  54028423 ")
+            .await
+            .expect("connected");
+        assert_eq!(integration.external_id, "54028423");
+    }
+
+    #[tokio::test]
+    async fn an_empty_token_is_refused() {
+        let h = harness();
+        let err = h
+            .service
+            .save_analytics_token(Secret::from_string("   ".to_owned()))
+            .await
+            .expect_err("must refuse");
+        assert!(matches!(err, ProvisioningError::MissingCredential));
+        assert!(!h.service.has_analytics_token().await);
+    }
+
+    #[tokio::test]
+    async fn disconnecting_removes_the_integration_but_keeps_the_shared_token() {
+        // Other websites are still using it.
+        let h = harness();
+        h.service
+            .save_analytics_token(Secret::from_string("oauth-token".to_owned()))
+            .await
+            .expect("token saved");
+        let website = a_website(&h.service).await;
+        h.service
+            .connect_analytics(website, yandex(), "54028423")
+            .await
+            .expect("connected");
+
+        h.service
+            .disconnect_analytics(website, &yandex())
+            .await
+            .expect("disconnected");
+
+        assert!(
+            h.analytics
+                .list_integrations_for_website(website)
+                .await
+                .expect("listed")
+                .is_empty()
+        );
+        assert!(
+            h.service.has_analytics_token().await,
+            "the token was removed too"
+        );
+    }
+
+    #[tokio::test]
+    async fn connecting_a_website_that_does_not_exist_is_refused() {
+        let h = harness();
+        h.service
+            .save_analytics_token(Secret::from_string("oauth-token".to_owned()))
+            .await
+            .expect("token saved");
+
+        assert!(
+            h.service
+                .connect_analytics(WebsiteId::new(), yandex(), "54028423")
+                .await
+                .is_err()
+        );
     }
 }

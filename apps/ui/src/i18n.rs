@@ -398,6 +398,16 @@ pub struct Strings {
     pub err_credential_missing: &'static str,
     pub err_credential_store: &'static str,
     pub err_save_failed: &'static str,
+    pub set_analytics_hint: &'static str,
+    pub set_token_stored: &'static str,
+    pub wd_connect_analytics: &'static str,
+    pub wd_counter_hint: &'static str,
+    pub wd_counter: &'static str,
+    pub action_connect: &'static str,
+    pub action_disconnect: &'static str,
+    pub err_counter_empty: &'static str,
+    pub err_counter_malformed: &'static str,
+    pub err_no_analytics_token: &'static str,
 }
 
 impl Strings {
@@ -697,6 +707,16 @@ impl Strings {
             err_credential_missing: "Enter the password, key or token for this connection",
             err_credential_store: "The credential could not be saved: {}",
             err_save_failed: "Could not save: {}",
+            set_analytics_hint: "The token is entered once and covers every counter the account can see. Each website’s counter number is set on its own Analytics tab.",
+            set_token_stored: "Token saved",
+            wd_connect_analytics: "Connect Yandex.Metrica",
+            wd_counter_hint: "The counter number for this website — digits only",
+            wd_counter: "Counter",
+            action_connect: "Connect",
+            action_disconnect: "Disconnect",
+            err_counter_empty: "Enter the counter number",
+            err_counter_malformed: "A counter number is digits only — not a link",
+            err_no_analytics_token: "Save the OAuth token in Settings first",
         }
     }
 
@@ -996,6 +1016,16 @@ impl Strings {
             err_credential_missing: "Введите пароль, ключ или токен для этого подключения",
             err_credential_store: "Не удалось сохранить учётные данные: {}",
             err_save_failed: "Не удалось сохранить: {}",
+            set_analytics_hint: "Токен вводится один раз и покрывает все счётчики аккаунта. Номер счётчика каждого сайта указывается на его вкладке «Аналитика».",
+            set_token_stored: "Токен сохранён",
+            wd_connect_analytics: "Подключить Яндекс.Метрику",
+            wd_counter_hint: "Номер счётчика этого сайта — только цифры",
+            wd_counter: "Счётчик",
+            action_connect: "Подключить",
+            action_disconnect: "Отключить",
+            err_counter_empty: "Укажите номер счётчика",
+            err_counter_malformed: "Номер счётчика — только цифры, не ссылка",
+            err_no_analytics_token: "Сначала сохраните OAuth-токен в настройках",
         }
     }
 }
@@ -1332,6 +1362,16 @@ pub fn apply(window: &AppWindow, strings: &Strings) {
     global.set_err_credential_missing(strings.err_credential_missing.into());
     global.set_err_credential_store(strings.err_credential_store.into());
     global.set_err_save_failed(strings.err_save_failed.into());
+    global.set_set_analytics_hint(strings.set_analytics_hint.into());
+    global.set_set_token_stored(strings.set_token_stored.into());
+    global.set_wd_connect_analytics(strings.wd_connect_analytics.into());
+    global.set_wd_counter_hint(strings.wd_counter_hint.into());
+    global.set_wd_counter(strings.wd_counter.into());
+    global.set_action_connect(strings.action_connect.into());
+    global.set_action_disconnect(strings.action_disconnect.into());
+    global.set_err_counter_empty(strings.err_counter_empty.into());
+    global.set_err_counter_malformed(strings.err_counter_malformed.into());
+    global.set_err_no_analytics_token(strings.err_no_analytics_token.into());
 }
 
 #[cfg(test)]

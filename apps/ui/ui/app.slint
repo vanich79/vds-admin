@@ -1,5 +1,7 @@
 // The application window: navigation, layout, and the properties Rust drives.
 
+import { Clipboard } from "clipboard.slint";
+import { Palette } from "std-widgets.slint";
 import { Theme, Layout } from "theme.slint";
 import { L } from "strings.slint";
 import { FlatButton, StatusBadge } from "components.slint";
@@ -177,8 +179,17 @@ export component AppWindow inherits Window {
     in-out property <bool> notification-sound: false;
     in-out property <bool> debug-mode: false;
     in-out property <string> webhook-url;
-    in-out property <string> metrica-counter;
     in-out property <string> metrica-token;
+    /// Whether the shared OAuth token has been saved. One token covers every counter the
+    /// account can see, so it is entered once here and each website only needs a number.
+    in property <bool> analytics-token-saved;
+    /// The counter the open website is connected to, empty when it is not.
+    in property <string> website-counter;
+    in property <string> analytics-error;
+
+    callback save-analytics-token(string);
+    callback connect-analytics(string, string);
+    callback disconnect-analytics(string);
 
     // --- dialogs ---
     // Which modal is open, and what the last attempt said. The worker owns both: the
@@ -224,8 +235,14 @@ export component AppWindow inherits Window {
         init => { Layout.window-width = root.width; }
     }
     changed width => { Layout.window-width = root.width; }
-    changed dark-theme => { Theme.dark = root.dark-theme; }
-    init => { Theme.dark = root.dark-theme; }
+    changed dark-theme => {
+        Theme.dark = root.dark-theme;
+        Palette.color-scheme = root.dark-theme ? ColorScheme.dark : ColorScheme.light;
+    }
+    init => {
+        Theme.dark = root.dark-theme;
+        Palette.color-scheme = root.dark-theme ? ColorScheme.dark : ColorScheme.light;
+    }
 
     HorizontalLayout {
         // --- sidebar (wide screens) ---
@@ -355,6 +372,15 @@ export component AppWindow inherits Window {
                     back => { root.showing-website-detail = false; }
                     period-changed(index) => { root.website-period-changed(index); }
                     refresh-screenshot => { root.refresh-screenshot(); }
+                    analytics-counter: root.website-counter;
+                    analytics-token-saved: root.analytics-token-saved;
+                    analytics-error: root.analytics-error;
+                    connect-analytics(counter) => {
+                        root.connect-analytics(root.website-detail.id, counter);
+                    }
+                    disconnect-analytics => {
+                        root.disconnect-analytics(root.website-detail.id);
+                    }
                 }
 
                 if root.page == 3: AnalyticsScreen {
@@ -401,12 +427,16 @@ export component AppWindow inherits Window {
                     notification-sound <=> root.notification-sound;
                     debug-mode <=> root.debug-mode;
                     webhook-url <=> root.webhook-url;
-                    metrica-counter <=> root.metrica-counter;
                     metrica-token <=> root.metrica-token;
                     theme-changed(index) => { root.theme-changed(index); }
                     language-changed(index) => { root.language-changed(index); }
                     screenshot-policy-changed(index) => { root.screenshot-policy-changed(index); }
-                    save-analytics => { root.save-analytics-settings(); }
+                    analytics-token-saved: root.analytics-token-saved;
+                    analytics-error: root.analytics-error;
+                    // The token travels with the callback rather than being read back
+                    // from a property: it is a secret, and the fewer places it sits the
+                    // better.
+                    save-analytics => { root.save-analytics-token(root.metrica-token); }
                     save-notifications => { root.save-notification-settings(); }
                 }
             }
@@ -497,3 +527,6 @@ export component AppWindow inherits Window {
         cancelled => { root.showing-add-website = false; }
     }
 }
+
+// Re-exported so Rust can serve its callbacks; see clipboard.slint.
+export { Clipboard }

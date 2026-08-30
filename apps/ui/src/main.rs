@@ -83,6 +83,9 @@ enum Intent {
     CaptureScreenshotNow(WebsiteId),
     AcknowledgeIncident(IncidentId),
     ToggleRule(vds_domain::ids::AlertRuleId),
+    SaveAnalyticsToken(Secret),
+    ConnectAnalytics { website: WebsiteId, counter: String },
+    DisconnectAnalytics(WebsiteId),
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -144,6 +147,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     i18n::apply(&window, &language.strings());
     tracing::info!(language = language.as_str(), "language selected");
 
+    wire_clipboard(&window);
     configure_static_properties(&window, &application);
 
     let (intents, receiver) = mpsc::unbounded_channel::<Intent>();
@@ -160,6 +164,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = intents.send(Intent::RefreshServers);
     let _ = intents.send(Intent::RefreshWebsites);
     let _ = intents.send(Intent::RefreshAlerts);
+    // Also publishes whether an analytics token is stored, which the connect form needs.
+    let _ = intents.send(Intent::RefreshAnalytics);
 
     window.run()?;
 
@@ -296,6 +302,38 @@ fn system_prefers_dark() -> bool {
 ///
 /// Every one of these returns immediately. A callback that awaited anything would block
 /// the event loop, and the window would stop repainting while a server was collected.
+/// Serves the clipboard shortcuts that the toolkit cannot.
+///
+/// Slint matches shortcuts on the character a key produces rather than on the physical
+/// key, so on a Russian layout Ctrl+V arrives as "м" and paste silently does nothing —
+/// in an application whose interface is in Russian and whose main use for paste is an
+/// SSH key. `clipboard.slint` catches those and calls in here.
+///
+/// A failure is deliberately quiet: an empty string on read, and nothing written on
+/// write. There is no clipboard on a headless CI runner, and a monitoring application
+/// must not refuse to start over one.
+fn wire_clipboard(window: &AppWindow) {
+    use copypasta::ClipboardProvider;
+
+    window.global::<Clipboard>().on_read(|| {
+        copypasta::ClipboardContext::new()
+            .and_then(|mut ctx| ctx.get_contents())
+            .unwrap_or_else(|error| {
+                tracing::debug!(%error, "could not read the clipboard");
+                String::new()
+            })
+            .into()
+    });
+
+    window.global::<Clipboard>().on_write(|text| {
+        if let Err(error) = copypasta::ClipboardContext::new()
+            .and_then(|mut ctx| ctx.set_contents(text.to_string()))
+        {
+            tracing::debug!(%error, "could not write to the clipboard");
+        }
+    });
+}
+
 fn wire_callbacks(window: &AppWindow, intents: &mpsc::UnboundedSender<Intent>) {
     /// Sends an intent, ignoring the error a closed channel would produce during
     /// shutdown — by then there is nothing left to tell.
@@ -549,7 +587,32 @@ fn wire_callbacks(window: &AppWindow, intents: &mpsc::UnboundedSender<Intent>) {
     window.on_add_rule(move || send(&queue, Intent::RefreshAlerts));
 
     let queue = intents.clone();
-    window.on_save_analytics_settings(move || send(&queue, Intent::RefreshAnalytics));
+    window.on_save_analytics_token(move |token| {
+        // Wrapped in `Secret` at the boundary, so it is redacted from every log line and
+        // zeroed on drop from here on.
+        send(
+            &queue,
+            Intent::SaveAnalyticsToken(Secret::from_string(token.to_string())),
+        );
+    });
+
+    let queue = intents.clone();
+    window.on_connect_analytics(move |website, counter| match WebsiteId::parse(&website) {
+        Ok(website) => send(
+            &queue,
+            Intent::ConnectAnalytics {
+                website,
+                counter: counter.to_string(),
+            },
+        ),
+        Err(error) => tracing::warn!(%error, "ignoring a malformed website id"),
+    });
+
+    let queue = intents.clone();
+    window.on_disconnect_analytics(move |website| match WebsiteId::parse(&website) {
+        Ok(website) => send(&queue, Intent::DisconnectAnalytics(website)),
+        Err(error) => tracing::warn!(%error, "ignoring a malformed website id"),
+    });
 
     let queue = intents.clone();
     window.on_save_notification_settings(move || send(&queue, Intent::RefreshAlerts));
@@ -608,9 +671,80 @@ async fn worker(
                 });
             }
 
-            Intent::RefreshAnalytics => {
+            Intent::SaveAnalyticsToken(token) => {
+                let outcome = application.provisioning.save_analytics_token(token).await;
+                let saved = application.provisioning.has_analytics_token().await;
+                let message = match outcome {
+                    Ok(()) => String::new(),
+                    Err(error) => view_model::describe_provisioning_error(&error),
+                };
+                push(&window, move |window| {
+                    window.set_analytics_token_saved(saved);
+                    window.set_analytics_error(message.into());
+                    // Cleared once stored: the field has served its purpose and the token
+                    // should not sit in a window property for the rest of the session.
+                    window.set_metrica_token(SharedString::new());
+                });
+            }
+
+            Intent::ConnectAnalytics { website, counter } => {
+                // Asked for rather than named: the UI must not know which provider
+                // crate exists. See `AnalyticsService::default_provider`.
+                let Some(provider) = application.analytics.default_provider() else {
+                    tracing::warn!("no analytics provider is registered");
+                    continue;
+                };
+                let message = match application
+                    .provisioning
+                    .connect_analytics(website, provider, &counter)
+                    .await
+                {
+                    Ok(_) => String::new(),
+                    Err(error) => view_model::describe_provisioning_error(&error),
+                };
+
+                push(&window, {
+                    let message = message.clone();
+                    move |window| window.set_analytics_error(message.into())
+                });
+
+                if message.is_empty()
+                    && let Some(detail) = website_detail(&runtime, website, analytics_period).await
+                {
+                    push(&window, move |window| detail.apply(&window));
+                    let update = runtime.analytics(analytics_period, analytics_metric).await;
+                    push(&window, move |window| update.apply(&window));
+                }
+            }
+
+            Intent::DisconnectAnalytics(website) => {
+                let Some(provider) = application.analytics.default_provider() else {
+                    continue;
+                };
+                if let Err(error) = application
+                    .provisioning
+                    .disconnect_analytics(website, &provider)
+                    .await
+                {
+                    tracing::warn!(%error, "could not disconnect the counter");
+                }
+                if let Some(detail) = website_detail(&runtime, website, analytics_period).await {
+                    push(&window, move |window| detail.apply(&window));
+                }
                 let update = runtime.analytics(analytics_period, analytics_metric).await;
                 push(&window, move |window| update.apply(&window));
+            }
+
+            Intent::RefreshAnalytics => {
+                let update = runtime.analytics(analytics_period, analytics_metric).await;
+                // Whether a token is stored decides what the connect form offers. Read
+                // here rather than on the UI thread: it touches the OS keystore, which
+                // can block for as long as the keyring feels like it.
+                let token_saved = application.provisioning.has_analytics_token().await;
+                push(&window, move |window| {
+                    update.apply(&window);
+                    window.set_analytics_token_saved(token_saved);
+                });
             }
 
             Intent::OpenServer(id) => {
@@ -1024,6 +1158,11 @@ struct WebsiteDetailUpdate {
     events: Vec<EventRow>,
     /// Where the capture named by the payload lives; the decode happens in `apply`.
     directory: PathBuf,
+    /// The counter this website is connected to, empty when it is not. Shown next to the
+    /// figures so a wrong number is visible rather than inferred from odd traffic.
+    counter: String,
+    /// Whether the shared token exists, which decides whether the connect form is usable.
+    token_saved: bool,
 }
 
 impl WebsiteDetailUpdate {
@@ -1031,6 +1170,8 @@ impl WebsiteDetailUpdate {
         window.set_website_detail(self.detail.into_view(&self.directory));
         window.set_website_charts(view_model::model(into_charts(self.charts)));
         window.set_top_pages(view_model::model(self.top_pages));
+        window.set_website_counter(self.counter.into());
+        window.set_analytics_token_saved(self.token_saved);
         window.set_website_events(view_model::model(self.events));
     }
 }
@@ -1118,12 +1259,27 @@ async fn website_detail(
         (Vec::new(), Vec::new())
     };
 
+    // Which counter, if any, and whether a token exists at all — both are needed before
+    // the tab can decide between showing figures and offering to connect.
+    let counter = application
+        .analytics_repository
+        .list_integrations_for_website(id)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .find(|integration| integration.enabled)
+        .map(|integration| integration.external_id)
+        .unwrap_or_default();
+    let token_saved = application.provisioning.has_analytics_token().await;
+
     Some(WebsiteDetailUpdate {
         detail,
         charts,
         top_pages,
         events,
         directory,
+        counter,
+        token_saved,
     })
 }
 
