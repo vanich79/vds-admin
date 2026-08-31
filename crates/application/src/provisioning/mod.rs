@@ -43,6 +43,9 @@ pub enum ProvisioningError {
     MalformedCounter,
     #[error("save the analytics token before connecting a counter")]
     MissingAnalyticsToken,
+    /// The application's own identifier was pasted where the token belongs.
+    #[error("that is an application ID, not an OAuth token")]
+    TokenLooksLikeAnApplicationId,
     #[error("could not store the credential: {0}")]
     Secrets(#[from] SecretStoreError),
     #[error("could not save: {0}")]
@@ -282,6 +285,17 @@ impl ProvisioningService {
         // one: it is what a stray paste of a blank line produces.
         if token.expose().iter().all(|byte| byte.is_ascii_whitespace()) {
             return Err(ProvisioningError::MissingCredential);
+        }
+
+        // Caught here rather than discovered later as a 403. On Yandex's application page
+        // the 32-character identifier is the most prominent string on the screen and the
+        // token is two steps further on, so this is the mistake that gets made — and the
+        // symptom is a refusal that reads like a permissions problem, which sends the
+        // person to check everything except the field they filled in.
+        if let Ok(text) = token.expose_str()
+            && looks_like_an_application_id(text.trim())
+        {
+            return Err(ProvisioningError::TokenLooksLikeAnApplicationId);
         }
 
         self.secrets
@@ -751,6 +765,19 @@ fn normalise_url(raw: &str) -> String {
         return trimmed.to_owned();
     }
     format!("https://{trimmed}")
+}
+
+/// Whether a value is Yandex's application identifier rather than an OAuth token.
+///
+/// The identifier is exactly 32 lowercase hexadecimal characters. A token is longer and
+/// carries characters no hexadecimal string can, so the two cannot be confused by this
+/// test in either direction — which matters, because refusing a real token would be worse
+/// than accepting a wrong one.
+fn looks_like_an_application_id(value: &str) -> bool {
+    value.len() == 32
+        && value
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
 }
 
 #[cfg(test)]
@@ -1706,5 +1733,51 @@ mod tests {
             .expect("updated");
 
         assert_eq!(updated.expectation.body_contains, None);
+    }
+
+    #[tokio::test]
+    async fn an_application_id_pasted_as_a_token_is_refused_at_the_field() {
+        // The mistake this exists for: on Yandex's application page the 32-character
+        // identifier is the most prominent string on the screen, and the token is two
+        // steps further on. Accepting it costs an afternoon of looking at the wrong
+        // thing, because the API answers 403 and that reads like a permissions problem.
+        let h = harness();
+        let application_id = "a1b2c3d4e5f60718293a4b5c6d7e8f90";
+
+        let outcome = h
+            .service
+            .save_analytics_token(Secret::from_string(application_id.to_owned()))
+            .await;
+
+        assert!(
+            matches!(
+                outcome,
+                Err(ProvisioningError::TokenLooksLikeAnApplicationId)
+            ),
+            "expected the identifier to be refused, got {outcome:?}"
+        );
+        assert!(
+            !h.service.has_analytics_token().await,
+            "it was stored anyway"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_real_token_is_not_mistaken_for_an_identifier() {
+        // Refusing a working token would be worse than accepting a wrong one, so the
+        // test is deliberately narrow: real tokens carry characters no hexadecimal
+        // string can, and are not 32 characters long.
+        let h = harness();
+        for token in [
+            "y0_AgAAAABmAAAAAADEXAMPLEtokenVALUE1234567890abc",
+            "AQAAAAAmExAmPlE_tokenvalue-123456789",
+            // Even a hexadecimal string is fine when it is not exactly the wrong length.
+            "a1b2c3d4e5f60718293a4b5c6d7e8f90aa",
+        ] {
+            h.service
+                .save_analytics_token(Secret::from_string(token.to_owned()))
+                .await
+                .unwrap_or_else(|e| panic!("{token} was refused: {e}"));
+        }
     }
 }

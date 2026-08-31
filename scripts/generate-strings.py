@@ -464,12 +464,21 @@ ENTRIES = [
      "Номер счётчика — только цифры, не ссылка"),
     ("err_no_analytics_token", "Save the OAuth token in Settings first",
      "Сначала сохраните OAuth-токен в настройках"),
+    # The mistake the application page invites: its 32-character identifier is the most
+    # prominent string on the screen, and the token is two steps further on.
+    ("err_token_is_app_id",
+     "That is the application ID, not the token. The token is longer, begins with y0_, "
+     "and is issued by the authorisation link — not shown on the application's page.",
+     "Это ID приложения, а не токен. Токен длиннее, начинается с y0_ и выдаётся по ссылке "
+     "авторизации — на странице приложения его нет."),
 
     # Stable codes from `ProviderError::kind`. A user whose token expired needs to be told
     # that, in their language — not shown the provider's own `Invalid oauth_token`.
     ("prov_authentication",
-     "The analytics token is not valid any more. Get a new one and save it in Settings.",
-     "Токен аналитики больше не действует. Получите новый и сохраните в настройках."),
+     "Yandex will not accept this token. Check that what you saved is the OAuth token "
+     "itself and not the application ID, then get a fresh one if it is.",
+     "Яндекс не принимает этот токен. Проверьте, что сохранён именно OAuth-токен, "
+     "а не ID приложения, и при необходимости получите новый."),
     ("prov_forbidden",
      "The token is valid but has no access to this counter. Check that it belongs to the "
      "account the counter is on.",

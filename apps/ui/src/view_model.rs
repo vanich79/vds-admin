@@ -408,6 +408,7 @@ pub fn describe_provisioning_error(error: &ProvisioningError) -> String {
         ProvisioningError::EmptyCounter => strings.err_counter_empty.to_owned(),
         ProvisioningError::MalformedCounter => strings.err_counter_malformed.to_owned(),
         ProvisioningError::MissingAnalyticsToken => strings.err_no_analytics_token.to_owned(),
+        ProvisioningError::TokenLooksLikeAnApplicationId => strings.err_token_is_app_id.to_owned(),
         // These two carry a cause from the operating system or the database. It is not
         // translated — it comes from outside — but the sentence around it is, so the line
         // still reads as one language with a quotation in it.

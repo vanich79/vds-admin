@@ -424,6 +424,7 @@ pub struct Strings {
     pub err_counter_empty: &'static str,
     pub err_counter_malformed: &'static str,
     pub err_no_analytics_token: &'static str,
+    pub err_token_is_app_id: &'static str,
     pub prov_authentication: &'static str,
     pub prov_forbidden: &'static str,
     pub prov_not_found: &'static str,
@@ -797,7 +798,8 @@ impl Strings {
             err_counter_empty: "Enter the counter number",
             err_counter_malformed: "A counter number is digits only — not a link",
             err_no_analytics_token: "Save the OAuth token in Settings first",
-            prov_authentication: "The analytics token is not valid any more. Get a new one and save it in Settings.",
+            err_token_is_app_id: "That is the application ID, not the token. The token is longer, begins with y0_, and is issued by the authorisation link — not shown on the application's page.",
+            prov_authentication: "Yandex will not accept this token. Check that what you saved is the OAuth token itself and not the application ID, then get a fresh one if it is.",
             prov_forbidden: "The token is valid but has no access to this counter. Check that it belongs to the account the counter is on.",
             prov_not_found: "The provider does not know this counter number",
             prov_rate_limited: "The provider is asking us to slow down; it will retry shortly",
@@ -1170,7 +1172,8 @@ impl Strings {
             err_counter_empty: "Укажите номер счётчика",
             err_counter_malformed: "Номер счётчика — только цифры, не ссылка",
             err_no_analytics_token: "Сначала сохраните OAuth-токен в настройках",
-            prov_authentication: "Токен аналитики больше не действует. Получите новый и сохраните в настройках.",
+            err_token_is_app_id: "Это ID приложения, а не токен. Токен длиннее, начинается с y0_ и выдаётся по ссылке авторизации — на странице приложения его нет.",
+            prov_authentication: "Яндекс не принимает этот токен. Проверьте, что сохранён именно OAuth-токен, а не ID приложения, и при необходимости получите новый.",
             prov_forbidden: "Токен рабочий, но доступа к этому счётчику нет. Проверьте, что он от того же аккаунта, где заведён счётчик.",
             prov_not_found: "Провайдер не знает такого номера счётчика",
             prov_rate_limited: "Провайдер просит сбавить темп — повтор будет чуть позже",
@@ -1580,6 +1583,7 @@ pub fn apply(window: &AppWindow, strings: &Strings) {
     global.set_err_counter_empty(strings.err_counter_empty.into());
     global.set_err_counter_malformed(strings.err_counter_malformed.into());
     global.set_err_no_analytics_token(strings.err_no_analytics_token.into());
+    global.set_err_token_is_app_id(strings.err_token_is_app_id.into());
     global.set_prov_authentication(strings.prov_authentication.into());
     global.set_prov_forbidden(strings.prov_forbidden.into());
     global.set_prov_not_found(strings.prov_not_found.into());

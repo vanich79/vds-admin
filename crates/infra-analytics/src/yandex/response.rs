@@ -169,6 +169,11 @@ pub fn parse_error(status: u16, body: &str, retry_after: Option<u64>) -> Provide
 
     match status {
         401 => ProviderError::Authentication(message),
+        // Metrica answers 403 to two different problems and says which in the body: a token it
+        // will not accept, and a token it accepts for an account that cannot see this
+        // counter. Collapsing them sends the user to check the wrong thing — as it did
+        // for an afternoon, while the field held an application ID rather than a token.
+        403 if mentions_the_token(&message) => ProviderError::Authentication(message),
         403 => ProviderError::Forbidden(message),
         404 => ProviderError::NotFound(message),
         429 => ProviderError::RateLimited {
@@ -185,6 +190,19 @@ pub fn parse_error(status: u16, body: &str, retry_after: Option<u64>) -> Provide
         400..=499 => ProviderError::Rejected(format!("HTTP {status}: {message}")),
         _ => ProviderError::Upstream(format!("HTTP {status}: {message}")),
     }
+}
+
+/// Whether a rejection is about the token itself rather than about what it may see.
+///
+/// Metrica's wording for the first is `Invalid oauth_token`; for the second it names the
+/// counter or says access is denied. Matching on the token's name is narrow on purpose —
+/// anything unrecognised stays a plain refusal, which is the safer of the two to be wrong
+/// about.
+fn mentions_the_token(message: &str) -> bool {
+    let lowered = message.to_lowercase();
+    lowered.contains("oauth_token")
+        || lowered.contains("oauth token")
+        || lowered.contains("invalid token")
 }
 
 /// Parses a date dimension into an instant.
@@ -389,5 +407,28 @@ mod tests {
         assert_eq!(hourly.time().to_string(), "14:00:00");
 
         assert_eq!(parse_dimension_date("last tuesday"), None);
+    }
+
+    #[test]
+    fn a_rejected_token_is_an_authentication_problem_even_at_403() {
+        // Metrica answers 403 both for "this token is not valid" and for "this token
+        // cannot see that counter". Telling them apart is the difference between "go and
+        // fetch a new token" and "check which account owns the counter" — and sending
+        // someone to the second when it is the first costs an afternoon.
+        let body = r#"{"errors":[{"error_type":"invalid_token","message":"Invalid oauth_token"}],"code":403}"#;
+        assert_eq!(parse_error(403, body, None).kind(), "authentication");
+    }
+
+    #[test]
+    fn a_counter_the_account_cannot_see_stays_a_refusal() {
+        let body = r#"{"errors":[{"error_type":"access_denied","message":"Access is denied to counter 12345"}],"code":403}"#;
+        assert_eq!(parse_error(403, body, None).kind(), "forbidden");
+    }
+
+    #[test]
+    fn an_unrecognised_403_stays_a_refusal() {
+        // The safer of the two to be wrong about: it does not send anyone to replace a
+        // token that is working.
+        assert_eq!(parse_error(403, "{}", None).kind(), "forbidden");
     }
 }

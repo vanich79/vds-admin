@@ -327,7 +327,8 @@ export global L {
     in property <string> err_counter_empty: "Enter the counter number";
     in property <string> err_counter_malformed: "A counter number is digits only — not a link";
     in property <string> err_no_analytics_token: "Save the OAuth token in Settings first";
-    in property <string> prov_authentication: "The analytics token is not valid any more. Get a new one and save it in Settings.";
+    in property <string> err_token_is_app_id: "That is the application ID, not the token. The token is longer, begins with y0_, and is issued by the authorisation link — not shown on the application's page.";
+    in property <string> prov_authentication: "Yandex will not accept this token. Check that what you saved is the OAuth token itself and not the application ID, then get a fresh one if it is.";
     in property <string> prov_forbidden: "The token is valid but has no access to this counter. Check that it belongs to the account the counter is on.";
     in property <string> prov_not_found: "The provider does not know this counter number";
     in property <string> prov_rate_limited: "The provider is asking us to slow down; it will retry shortly";
