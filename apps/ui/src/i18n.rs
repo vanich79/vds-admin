@@ -424,6 +424,17 @@ pub struct Strings {
     pub err_counter_empty: &'static str,
     pub err_counter_malformed: &'static str,
     pub err_no_analytics_token: &'static str,
+    pub prov_authentication: &'static str,
+    pub prov_forbidden: &'static str,
+    pub prov_not_found: &'static str,
+    pub prov_rate_limited: &'static str,
+    pub prov_rejected: &'static str,
+    pub prov_upstream: &'static str,
+    pub prov_network: &'static str,
+    pub prov_timeout: &'static str,
+    pub prov_malformed: &'static str,
+    pub prov_unsupported: &'static str,
+    pub prov_missing_credential: &'static str,
     pub nav_files: &'static str,
     pub files_title: &'static str,
     pub files_subtitle: &'static str,
@@ -786,6 +797,17 @@ impl Strings {
             err_counter_empty: "Enter the counter number",
             err_counter_malformed: "A counter number is digits only — not a link",
             err_no_analytics_token: "Save the OAuth token in Settings first",
+            prov_authentication: "The analytics token is not valid any more. Get a new one and save it in Settings.",
+            prov_forbidden: "The token is valid but has no access to this counter. Check that it belongs to the account the counter is on.",
+            prov_not_found: "The provider does not know this counter number",
+            prov_rate_limited: "The provider is asking us to slow down; it will retry shortly",
+            prov_rejected: "The provider rejected the request",
+            prov_upstream: "The provider returned an error",
+            prov_network: "Could not reach the provider",
+            prov_timeout: "The provider did not answer in time",
+            prov_malformed: "The provider's answer could not be read",
+            prov_unsupported: "This provider does not offer that",
+            prov_missing_credential: "No token is saved for this provider",
             nav_files: "Files",
             files_title: "Files",
             files_subtitle: "Browse and edit files on the server",
@@ -1148,6 +1170,17 @@ impl Strings {
             err_counter_empty: "Укажите номер счётчика",
             err_counter_malformed: "Номер счётчика — только цифры, не ссылка",
             err_no_analytics_token: "Сначала сохраните OAuth-токен в настройках",
+            prov_authentication: "Токен аналитики больше не действует. Получите новый и сохраните в настройках.",
+            prov_forbidden: "Токен рабочий, но доступа к этому счётчику нет. Проверьте, что он от того же аккаунта, где заведён счётчик.",
+            prov_not_found: "Провайдер не знает такого номера счётчика",
+            prov_rate_limited: "Провайдер просит сбавить темп — повтор будет чуть позже",
+            prov_rejected: "Провайдер отклонил запрос",
+            prov_upstream: "Провайдер вернул ошибку",
+            prov_network: "Не удалось связаться с провайдером",
+            prov_timeout: "Провайдер не ответил вовремя",
+            prov_malformed: "Не удалось разобрать ответ провайдера",
+            prov_unsupported: "Провайдер такого не умеет",
+            prov_missing_credential: "Для этого провайдера не сохранён токен",
             nav_files: "Файлы",
             files_title: "Файлы",
             files_subtitle: "Просмотр и редактирование файлов на сервере",
@@ -1547,6 +1580,17 @@ pub fn apply(window: &AppWindow, strings: &Strings) {
     global.set_err_counter_empty(strings.err_counter_empty.into());
     global.set_err_counter_malformed(strings.err_counter_malformed.into());
     global.set_err_no_analytics_token(strings.err_no_analytics_token.into());
+    global.set_prov_authentication(strings.prov_authentication.into());
+    global.set_prov_forbidden(strings.prov_forbidden.into());
+    global.set_prov_not_found(strings.prov_not_found.into());
+    global.set_prov_rate_limited(strings.prov_rate_limited.into());
+    global.set_prov_rejected(strings.prov_rejected.into());
+    global.set_prov_upstream(strings.prov_upstream.into());
+    global.set_prov_network(strings.prov_network.into());
+    global.set_prov_timeout(strings.prov_timeout.into());
+    global.set_prov_malformed(strings.prov_malformed.into());
+    global.set_prov_unsupported(strings.prov_unsupported.into());
+    global.set_prov_missing_credential(strings.prov_missing_credential.into());
     global.set_nav_files(strings.nav_files.into());
     global.set_files_title(strings.files_title.into());
     global.set_files_subtitle(strings.files_subtitle.into());

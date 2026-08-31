@@ -327,6 +327,17 @@ export global L {
     in property <string> err_counter_empty: "Enter the counter number";
     in property <string> err_counter_malformed: "A counter number is digits only — not a link";
     in property <string> err_no_analytics_token: "Save the OAuth token in Settings first";
+    in property <string> prov_authentication: "The analytics token is not valid any more. Get a new one and save it in Settings.";
+    in property <string> prov_forbidden: "The token is valid but has no access to this counter. Check that it belongs to the account the counter is on.";
+    in property <string> prov_not_found: "The provider does not know this counter number";
+    in property <string> prov_rate_limited: "The provider is asking us to slow down; it will retry shortly";
+    in property <string> prov_rejected: "The provider rejected the request";
+    in property <string> prov_upstream: "The provider returned an error";
+    in property <string> prov_network: "Could not reach the provider";
+    in property <string> prov_timeout: "The provider did not answer in time";
+    in property <string> prov_malformed: "The provider's answer could not be read";
+    in property <string> prov_unsupported: "This provider does not offer that";
+    in property <string> prov_missing_credential: "No token is saved for this provider";
     in property <string> nav_files: "Files";
     in property <string> files_title: "Files";
     in property <string> files_subtitle: "Browse and edit files on the server";

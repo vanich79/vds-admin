@@ -62,6 +62,14 @@ pub struct AnalyticsService {
     clock: Arc<dyn Clock>,
     rate_limits: Arc<RateLimitManager>,
     detector: TrafficAnomalyDetector,
+    /// Why the last refresh failed, if it did.
+    ///
+    /// The one piece of state this service keeps, and it earns its place: a refresh runs
+    /// on a schedule with nobody watching, so without somewhere to leave the reason, a
+    /// provider that has been rejecting the token for a fortnight shows up as an empty
+    /// screen and nothing else. Holding the *kind* rather than the message is what lets
+    /// the interface say it in the user's language.
+    last_failure: parking_lot::Mutex<Option<&'static str>>,
 }
 
 impl AnalyticsService {
@@ -80,7 +88,16 @@ impl AnalyticsService {
             clock,
             rate_limits,
             detector,
+            last_failure: parking_lot::Mutex::new(None),
         }
+    }
+
+    /// Why the most recent refresh failed, as a code the interface can translate.
+    ///
+    /// `None` once a refresh has succeeded: a stale error is worse than none, because it
+    /// sends someone to fix something that is already working.
+    pub fn last_failure(&self) -> Option<&'static str> {
+        *self.last_failure.lock()
     }
 
     /// Reads an overview, serving the cache immediately and refreshing behind it.
@@ -246,7 +263,13 @@ impl AnalyticsService {
 
         match self.fetch_overview(&integration, range).await {
             Ok(_) => {}
-            Err(err) => return self.outcome_for(&integration, err),
+            Err(err) => {
+                // The reason is kept where the interface can reach it. A refresh that has
+                // been failing since the token was entered has to be able to say so;
+                // until it could, the only symptom was an empty screen.
+                *self.last_failure.lock() = Some(err.kind());
+                return self.outcome_for(&integration, err);
+            }
         }
 
         // The time series feeds both the chart and the anomaly detector, so it is worth
@@ -268,6 +291,7 @@ impl AnalyticsService {
             }
         }
 
+        *self.last_failure.lock() = None;
         self.events.publish(DomainEvent::AnalyticsUpdated {
             website_id: integration.website_id,
             provider: integration.provider.clone(),
@@ -1035,5 +1059,34 @@ mod tests {
                 .await
                 .is_none()
         );
+    }
+
+    #[tokio::test]
+    async fn the_reason_a_refresh_failed_outlives_the_refresh() {
+        // A refresh runs on a schedule with nobody watching. Without somewhere to leave
+        // the reason, a provider that has been rejecting the token for a fortnight is
+        // indistinguishable from a site with no traffic — which is exactly how an expired
+        // Yandex token went unnoticed here.
+        let website = WebsiteId::new();
+        let provider = Arc::new(StubProvider::failing(ProviderError::Forbidden(
+            "Invalid oauth_token".into(),
+        )));
+        let h = harness_with(Arc::clone(&provider), website);
+
+        assert_eq!(h.service.last_failure(), None, "nothing has run yet");
+
+        h.service.refresh(h.integration.id).await;
+
+        // The *kind*, not the sentence: the provider's own words are English and cannot
+        // be translated after the fact.
+        assert_eq!(h.service.last_failure(), Some("forbidden"));
+    }
+
+    #[tokio::test]
+    async fn a_successful_refresh_clears_the_previous_reason() {
+        // A stale error is worse than none: it sends someone to fix what already works.
+        let h = harness();
+        h.service.refresh(h.integration.id).await;
+        assert_eq!(h.service.last_failure(), None);
     }
 }

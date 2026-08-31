@@ -492,6 +492,31 @@ pub fn describe_event(event: &vds_domain::events::DomainEvent) -> String {
     }
 }
 
+/// Why an analytics provider refused, in the user's language.
+///
+/// Keyed on [`vds_domain::ports::ProviderError::kind`]. The provider's own text is
+/// English and carries its wording — `Invalid oauth_token` — which is accurate and no use
+/// to the person who has to go and fetch a new token.
+/// Takes the code rather than the error, because by the time the interface needs this the
+/// error itself is long gone: it failed on a schedule, on another thread, minutes ago.
+pub fn describe_provider_error(kind: &str) -> String {
+    let strings = crate::i18n::strings();
+    match kind {
+        "authentication" => strings.prov_authentication,
+        "forbidden" => strings.prov_forbidden,
+        "not_found" => strings.prov_not_found,
+        "rate_limited" => strings.prov_rate_limited,
+        "rejected" => strings.prov_rejected,
+        "upstream" => strings.prov_upstream,
+        "network" => strings.prov_network,
+        "timeout" => strings.prov_timeout,
+        "malformed" => strings.prov_malformed,
+        "unsupported" => strings.prov_unsupported,
+        _ => strings.prov_missing_credential,
+    }
+    .to_owned()
+}
+
 /// A file operation's failure, in the user's language.
 ///
 /// Keyed on [`FileError::kind`] rather than on the error's own text: the domain formats

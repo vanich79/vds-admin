@@ -465,6 +465,30 @@ ENTRIES = [
     ("err_no_analytics_token", "Save the OAuth token in Settings first",
      "Сначала сохраните OAuth-токен в настройках"),
 
+    # Stable codes from `ProviderError::kind`. A user whose token expired needs to be told
+    # that, in their language — not shown the provider's own `Invalid oauth_token`.
+    ("prov_authentication",
+     "The analytics token is not valid any more. Get a new one and save it in Settings.",
+     "Токен аналитики больше не действует. Получите новый и сохраните в настройках."),
+    ("prov_forbidden",
+     "The token is valid but has no access to this counter. Check that it belongs to the "
+     "account the counter is on.",
+     "Токен рабочий, но доступа к этому счётчику нет. Проверьте, что он от того же аккаунта, "
+     "где заведён счётчик."),
+    ("prov_not_found", "The provider does not know this counter number",
+     "Провайдер не знает такого номера счётчика"),
+    ("prov_rate_limited", "The provider is asking us to slow down; it will retry shortly",
+     "Провайдер просит сбавить темп — повтор будет чуть позже"),
+    ("prov_rejected", "The provider rejected the request", "Провайдер отклонил запрос"),
+    ("prov_upstream", "The provider returned an error", "Провайдер вернул ошибку"),
+    ("prov_network", "Could not reach the provider", "Не удалось связаться с провайдером"),
+    ("prov_timeout", "The provider did not answer in time", "Провайдер не ответил вовремя"),
+    ("prov_malformed", "The provider's answer could not be read",
+     "Не удалось разобрать ответ провайдера"),
+    ("prov_unsupported", "This provider does not offer that", "Провайдер такого не умеет"),
+    ("prov_missing_credential", "No token is saved for this provider",
+     "Для этого провайдера не сохранён токен"),
+
     # --- file manager -------------------------------------------------------------
     # The only screen that changes anything on a server, so its wording is deliberately
     # plain about what is about to happen.

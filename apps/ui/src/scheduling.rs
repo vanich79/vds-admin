@@ -5,7 +5,7 @@
 //! only the registration: it turns each server, website and integration into a
 //! [`Task`](vds_application::scheduler::Task).
 
-use crate::Intent;
+use crate::intents::Intent;
 use async_trait::async_trait;
 use chrono::Duration;
 use std::sync::Arc;

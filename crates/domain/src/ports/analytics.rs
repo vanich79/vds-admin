@@ -62,6 +62,29 @@ pub enum ProviderError {
 }
 
 impl ProviderError {
+    /// A stable code, so the interface can translate it.
+    ///
+    /// The same reasoning as [`crate::ports::TransportErrorKind`] and
+    /// [`crate::ports::FileError::kind`]: these messages are formatted English carrying a
+    /// provider's own words, and a sentence that already exists cannot be translated. A
+    /// user whose token has expired needs to be told that in their language, not shown
+    /// `access denied: Invalid oauth_token`.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            ProviderError::Authentication(_) => "authentication",
+            ProviderError::Forbidden(_) => "forbidden",
+            ProviderError::NotFound(_) => "not_found",
+            ProviderError::RateLimited { .. } => "rate_limited",
+            ProviderError::Rejected(_) => "rejected",
+            ProviderError::Upstream(_) => "upstream",
+            ProviderError::Network(_) => "network",
+            ProviderError::Timeout { .. } => "timeout",
+            ProviderError::Malformed(_) => "malformed",
+            ProviderError::Unsupported(_) => "unsupported",
+            ProviderError::MissingCredential(_) => "missing_credential",
+        }
+    }
+
     /// Whether the scheduler should retry with backoff.
     pub fn is_retryable(&self) -> bool {
         matches!(
@@ -205,5 +228,34 @@ mod tests {
             retry_after_secs: None,
         };
         assert_eq!(vague.retry_after(), None);
+    }
+
+    #[test]
+    fn every_provider_failure_has_its_own_code_to_translate() {
+        // A formatted English sentence cannot be translated after it exists. The lesson
+        // that `TransportErrorKind` and `FileError::kind` already taught, applied here
+        // because "access denied: Invalid oauth_token" is what a user was shown instead
+        // of "the token has expired; get a new one".
+        let cases = [
+            ProviderError::Authentication("x".into()),
+            ProviderError::Forbidden("x".into()),
+            ProviderError::NotFound("x".into()),
+            ProviderError::RateLimited {
+                retry_after_secs: None,
+            },
+            ProviderError::Rejected("x".into()),
+            ProviderError::Upstream("x".into()),
+            ProviderError::Network("x".into()),
+            ProviderError::Timeout { seconds: 1 },
+            ProviderError::Malformed("x".into()),
+            ProviderError::Unsupported("x"),
+            ProviderError::MissingCredential("x".into()),
+        ];
+
+        let mut codes: Vec<&str> = cases.iter().map(ProviderError::kind).collect();
+        let count = codes.len();
+        codes.sort_unstable();
+        codes.dedup();
+        assert_eq!(codes.len(), count, "two failures share a code");
     }
 }
