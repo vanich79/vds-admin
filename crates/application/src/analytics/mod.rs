@@ -355,6 +355,17 @@ impl AnalyticsService {
                 .penalise(integration.provider.as_str(), retry_after, self.clock.now());
         }
 
+        // Logged as well as published. An event reaches the activity feed, which is the
+        // right place for a user to see this; the log is where it can be read after the
+        // fact, and a provider that has been failing since the token was entered leaves
+        // no other trace.
+        tracing::warn!(
+            provider = %integration.provider,
+            counter = %integration.external_id,
+            error = %err,
+            "an analytics refresh failed"
+        );
+
         self.events.publish(DomainEvent::AnalyticsRefreshFailed {
             website_id: integration.website_id,
             provider: integration.provider.clone(),

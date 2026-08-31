@@ -50,6 +50,18 @@ impl Database {
             connection: Arc::new(Mutex::new(connection)),
             path: Some(path.clone()),
         };
+
+        // Said once, at startup. Which file the data is actually in is the first question
+        // to ask when the application and the disk disagree about what is stored.
+        let opened = database
+            .call(|connection| {
+                connection.query_row("PRAGMA database_list", [], |row| row.get::<_, String>(2))
+            })
+            .await
+            .unwrap_or_default();
+        tracing::info!(configured = ?path, opened, "database opened");
+
+        database.check_integrity(&path).await?;
         crate::migrations::apply(&database).await?;
         Ok(database)
     }
@@ -83,6 +95,52 @@ impl Database {
         };
         crate::migrations::apply(&database).await?;
         Ok(database)
+    }
+
+    /// Refuses to start on a damaged file.
+    ///
+    /// A corrupt SQLite database does not announce itself. Its damaged tables simply read
+    /// as empty, and every layer above behaves exactly as it should for a user who has
+    /// configured nothing: the site list is blank, the scheduler registers no jobs, and
+    /// analytics has nothing to refresh. That is indistinguishable from a fresh install,
+    /// and it is the worst possible way to lose data — silently, while the application
+    /// looks like it is working.
+    ///
+    /// `quick_check` rather than `integrity_check`: it catches this class of damage,
+    /// costs a fraction of the time on a database with a year of metrics in it, and this
+    /// runs on every start.
+    async fn check_integrity(&self, path: &Path) -> Result<(), RepositoryError> {
+        let verdict = self
+            .call(|connection| {
+                connection.query_row("PRAGMA quick_check(1)", [], |row| row.get::<_, String>(0))
+            })
+            .await;
+
+        match verdict.as_deref() {
+            Ok("ok") => Ok(()),
+            // A file too damaged to answer the question is damaged.
+            Ok(problem) => Err(Self::corruption(path, problem)),
+            Err(error) => Err(Self::corruption(path, &error.to_string())),
+        }
+    }
+
+    /// The message a person needs when their database is broken.
+    ///
+    /// Says what is wrong, where the file is, and what to do with it. A stack trace would
+    /// say none of those things.
+    fn corruption(path: &Path, detail: &str) -> RepositoryError {
+        tracing::error!(
+            ?path,
+            detail,
+            "the database is damaged; the application will not start"
+        );
+        RepositoryError::Corrupt(format!(
+            "the database at {} is damaged ({detail}). Its contents cannot be trusted, so \
+             the application has stopped rather than show you an empty one. Move the file \
+             aside — together with its -wal and -shm companions — to start fresh, and keep \
+             the copy: the servers and websites in it may still be recoverable.",
+            path.display()
+        ))
     }
 
     /// The file backing this database, if it is not in memory.
@@ -341,5 +399,74 @@ mod tests {
             .call(|c| c.execute("INSERT INTO shared (id) VALUES (1)", []))
             .await
             .expect("inserted");
+    }
+
+    #[tokio::test]
+    async fn a_healthy_database_opens() {
+        let directory = tempfile::tempdir().expect("temp dir");
+        let path = directory.path().join("vds.db");
+
+        Database::open(&path).await.expect("a fresh database opens");
+        // And again, on a file that now has a schema and a WAL beside it.
+        Database::open(&path)
+            .await
+            .expect("an existing database reopens");
+    }
+
+    #[tokio::test]
+    async fn a_damaged_database_is_refused_rather_than_read_as_empty() {
+        // This is the failure that cost a real diagnosis: a corrupt file does not
+        // announce itself. Its damaged tables read as empty, and every layer above
+        // behaves exactly as it should for someone who has configured nothing.
+        let directory = tempfile::tempdir().expect("temp dir");
+        let path = directory.path().join("vds.db");
+
+        {
+            let database = Database::open(&path).await.expect("opens");
+            database
+                .call(|connection| {
+                    // Enough rows to span many pages: a one-row table lives in the
+                    // header's neighbourhood, where a scribble either destroys the file
+                    // outright or misses everything.
+                    connection.execute_batch(
+                        "CREATE TABLE canary (id INTEGER PRIMARY KEY, value TEXT);
+                         WITH RECURSIVE seq(n) AS (
+                             SELECT 1 UNION ALL SELECT n + 1 FROM seq WHERE n < 4000
+                         )
+                         INSERT INTO canary (value)
+                             SELECT 'important-' || n || '-' || hex(randomblob(64)) FROM seq;
+                         PRAGMA wal_checkpoint(TRUNCATE);",
+                    )
+                })
+                .await
+                .expect("writes");
+        }
+
+        // Scribble over the middle of the file, leaving the header intact — which is what
+        // real corruption looks like, and why it opens without complaint.
+        {
+            use std::io::{Seek, SeekFrom, Write};
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .open(&path)
+                .expect("opens for writing");
+            let size = file.metadata().expect("metadata").len();
+            file.seek(SeekFrom::Start(size / 2)).expect("seeks");
+            file.write_all(&[0x5a; 16384]).expect("writes");
+            file.flush().expect("flushes");
+        }
+
+        let outcome = Database::open(&path).await;
+
+        let error = outcome.expect_err("a damaged database must be refused");
+        assert!(
+            matches!(error, RepositoryError::Corrupt(_)),
+            "expected corruption, got {error:?}"
+        );
+        // And the message has to be usable by the person reading it: where the file is,
+        // and that the copy is worth keeping.
+        let message = error.to_string();
+        assert!(message.contains("vds.db"), "{message}");
+        assert!(message.contains("recoverable"), "{message}");
     }
 }

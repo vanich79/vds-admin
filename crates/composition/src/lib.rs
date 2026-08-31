@@ -11,10 +11,12 @@
 #![forbid(unsafe_code)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
+pub mod event_log;
 pub mod logging;
 pub mod paths;
 
 mod wiring;
 
+pub use event_log::{EventLogReceiver, PersistentEventPublisher, write_events};
 pub use paths::AppPaths;
 pub use wiring::{Application, ApplicationError, SecretsSetup};

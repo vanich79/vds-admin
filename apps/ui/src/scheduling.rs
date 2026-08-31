@@ -348,6 +348,23 @@ fn register_fixed(application: &Arc<Application>, intents: &UnboundedSender<Inte
     );
 }
 
+/// Reads a list for the scheduler, saying so when it cannot.
+///
+/// `unwrap_or_default` was here, and it is the wrong tool for this: a query that fails and
+/// a table that is empty become the same empty vector, and the visible result is that
+/// monitoring quietly stops for everything of that kind. The scheduler still carries on
+/// with what it has — one unreadable table must not stop the others — but it no longer
+/// does so silently.
+fn or_report<T>(outcome: Result<Vec<T>, vds_domain::ports::RepositoryError>, what: &str) -> Vec<T> {
+    match outcome {
+        Ok(items) => items,
+        Err(error) => {
+            tracing::warn!(%error, what, "could not read the list; nothing of this kind will run");
+            Vec::new()
+        }
+    }
+}
+
 /// Registers a job per server, website and integration.
 ///
 /// Idempotent: re-registering an existing job updates its interval without disturbing an
@@ -355,7 +372,7 @@ fn register_fixed(application: &Arc<Application>, intents: &UnboundedSender<Inte
 async fn register_subjects(application: &Arc<Application>, intents: &UnboundedSender<Intent>) {
     let scheduler = &application.scheduler;
 
-    let servers = application.servers.list().await.unwrap_or_default();
+    let servers = or_report(application.servers.list().await, "servers");
     for (index, server) in servers.iter().enumerate() {
         if !server.enabled {
             scheduler.unregister(&JobKey::new(format!("server:{}", server.id)));
@@ -374,7 +391,7 @@ async fn register_subjects(application: &Arc<Application>, intents: &UnboundedSe
         );
     }
 
-    let websites = application.websites.list().await.unwrap_or_default();
+    let websites = or_report(application.websites.list().await, "websites");
     for (index, website) in websites.iter().enumerate() {
         if !website.enabled {
             scheduler.unregister(&JobKey::new(format!("website:{}", website.id)));
@@ -407,17 +424,21 @@ async fn register_subjects(application: &Arc<Application>, intents: &UnboundedSe
         );
     }
 
-    let integrations = application
-        .analytics_repository
-        .list_integrations()
-        .await
-        .unwrap_or_default();
+    // Read explicitly rather than with `unwrap_or_default`: a failing query and an empty
+    // table look identical through that, and "analytics never refreshes" is exactly the
+    // symptom either would produce.
+    let mut registered_integrations = 0usize;
+    let integrations = or_report(
+        application.analytics_repository.list_integrations().await,
+        "analytics integrations",
+    );
     for integration in &integrations {
         if !integration.enabled {
             scheduler.unregister(&JobKey::new(format!("analytics:{}", integration.id)));
             continue;
         }
 
+        registered_integrations += 1;
         scheduler.register(
             Arc::new(RefreshAnalytics {
                 application: Arc::clone(application),
@@ -435,6 +456,15 @@ async fn register_subjects(application: &Arc<Application>, intents: &UnboundedSe
             },
         );
     }
+
+    // Said once per pass, at debug, so that "nothing is refreshing" can be answered from
+    // the log rather than from the database.
+    tracing::debug!(
+        servers = servers.len(),
+        websites = websites.len(),
+        integrations = registered_integrations,
+        "scheduler pass"
+    );
 }
 
 #[cfg(test)]

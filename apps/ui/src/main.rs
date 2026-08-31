@@ -55,7 +55,7 @@ use vds_application::files::Preview;
 use vds_application::provisioning::{
     ConnectionEdit, NewConnection, NewServer, NewWebsite, ServerEdit,
 };
-use vds_composition::{AppPaths, Application, SecretsSetup, logging};
+use vds_composition::{AppPaths, Application, PersistentEventPublisher, SecretsSetup, logging};
 use vds_domain::analytics::AnalyticsPeriod;
 use vds_domain::ids::{IncidentId, ServerId, WebsiteId};
 use vds_domain::ports::Secret;
@@ -150,6 +150,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .thread_name("vds-worker")
         .build()?;
 
+    // Built before the application because the producers inside it take the publisher as
+    // a dependency; the repository it writes to only exists afterwards, which is why the
+    // receiving half is handed over separately below.
+    let (events, event_log) = PersistentEventPublisher::new();
+
     let application = tokio.block_on(async {
         let secrets = SecretsSetup::Automatic {
             // Only consulted when no OS keystore is reachable. Derived from the machine
@@ -160,13 +165,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Application::assemble(
             paths.clone(),
             configuration.clone(),
-            events_publisher(),
+            Arc::clone(&events) as Arc<dyn vds_domain::ports::EventPublisher>,
             secrets,
         )
         .await
     })?;
 
     let application = Arc::new(application);
+
+    // Without this the events table stays empty however much happens: every producer
+    // publishes, and nothing writes it down.
+    tokio.spawn(vds_composition::write_events(
+        event_log,
+        Arc::clone(&application.events_repository),
+        Arc::clone(&application.clock),
+    ));
 
     match tokio.block_on(application.seed_default_alerts()) {
         Ok(0) => {}
@@ -240,15 +253,6 @@ fn load_configuration(
 
     let text = std::fs::read_to_string(&paths.config_file)?;
     Ok(Configuration::from_toml(&text)?)
-}
-
-/// The event publisher.
-///
-/// Events are consumed by the alert engine and the event log inside the application
-/// layer; the window learns about changes by re-querying, which keeps the UI a pure
-/// function of stored state rather than of a message stream it might miss.
-fn events_publisher() -> Arc<dyn vds_domain::ports::EventPublisher> {
-    Arc::new(vds_domain::ports::NullEventPublisher)
 }
 
 /// A passphrase for the encrypted-file fallback.
