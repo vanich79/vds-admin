@@ -130,6 +130,12 @@ impl ServerMonitor {
         state.memory_percent = snapshot.memory.used_percent();
         state.disk_percent = snapshot.worst_filesystem_percent();
 
+        // Recorded every cycle, including the cycles that clear it. A stale reason beside
+        // a healthy server would be worse than none: it would name a problem that has
+        // already gone away.
+        state.status_cause =
+            vds_domain::server::worst_cause(&results, &server.thresholds, &snapshot.outcomes);
+
         if let Err(err) = self.servers.save_state(&state).await {
             return JobOutcome::Retry(format!("could not save server state: {err}"));
         }
@@ -546,6 +552,36 @@ mod tests {
             h.servers.state(h.server.id).expect("state").status,
             Status::Warning
         );
+    }
+
+    #[tokio::test]
+    async fn the_reason_for_the_status_is_recorded_and_later_cleared() {
+        // The complaint: a server marked Critical while every figure on the overview
+        // looked fine, because the measurement that lost was not one of the four shown.
+        let h = harness();
+        let mut snapshot = healthy_snapshot(h.server.id, at(1_000));
+        snapshot.memory.swap_total_bytes = Some(1_000_000_000);
+        snapshot.memory.swap_used_bytes = Some(970_000_000);
+        h.probe.respond(Ok(snapshot));
+        h.monitor.collect(h.server.id).await;
+
+        let state = h.servers.state(h.server.id).expect("state");
+        assert_eq!(state.status, Status::Critical);
+        assert_eq!(
+            state.status_cause.as_ref().and_then(|c| c.metric()),
+            Some(vds_domain::metrics::MetricKind::SwapUsage),
+            "the status said critical and would not say why"
+        );
+
+        // And it goes away with the problem. A reason that outlived its cause would name
+        // something already fixed.
+        h.probe
+            .respond(Ok(healthy_snapshot(h.server.id, at(2_000))));
+        h.monitor.collect(h.server.id).await;
+
+        let state = h.servers.state(h.server.id).expect("state");
+        assert_eq!(state.status, Status::Healthy);
+        assert_eq!(state.status_cause, None, "a stale reason survived");
     }
 
     #[tokio::test]

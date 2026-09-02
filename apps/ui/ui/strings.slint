@@ -88,6 +88,9 @@ export global L {
     in property <string> tab_screenshot: "Screenshots";
     in property <string> tab_history: "History";
     in property <string> tab_rules: "Rules";
+    in property <string> sd_status_reason: "{}: {}, threshold {}";
+    in property <string> sd_status_reason_collector: "Collector «{}»: {}";
+    in property <string> sd_show_on_chart: "Show on the chart";
     in property <string> sd_system: "System";
     in property <string> sd_operating_system: "Operating system";
     in property <string> sd_kernel: "Kernel";
@@ -268,7 +271,7 @@ export global L {
     in property <string> shot_none_yet: "No screenshot yet";
     in property <string> shot_offline: "Screenshot unavailable — the website is currently offline";
     in property <string> shot_failed: "Screenshot generation failed: {}";
-    in property <string> shot_unsupported: "Screenshots are not available on this machine";
+    in property <string> shot_unsupported: "No Chromium-based browser was found. Install Chromium, Chrome, Brave, Edge or Vivaldi and the previews will appear by themselves.";
     in property <string> ev_server_status: "Server went from {} to {}";
     in property <string> ev_collection_failed: "Collection failed ({} in a row): {}";
     in property <string> ev_website_status: "Website went from {} to {}";

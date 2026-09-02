@@ -221,6 +221,10 @@ pub struct ServerDetailPayload {
     pub last_check: String,
     pub last_error: String,
     pub last_error_detail: String,
+    /// Why the status is what it is, already phrased. Empty when healthy.
+    pub status_reason: String,
+    /// Whether that reason points at a measurement, so the interface can offer its chart.
+    pub status_reason_has_chart: bool,
     pub cards: Vec<StatCard>,
     pub has_docker: bool,
     pub has_systemd: bool,
@@ -243,6 +247,8 @@ impl ServerDetailPayload {
             last_check: self.last_check.into(),
             last_error: self.last_error.into(),
             last_error_detail: self.last_error_detail.into(),
+            status_reason: self.status_reason.into(),
+            status_reason_has_chart: self.status_reason_has_chart,
             cards: model(self.cards),
             has_docker: self.has_docker,
             has_systemd: self.has_systemd,

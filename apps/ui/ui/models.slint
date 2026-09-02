@@ -28,6 +28,8 @@ export struct ServerRow {
     disk-fraction: float,
     uptime: string,
     last-check: string,
+    /// Which measurement made the status what it is, already phrased. Empty when healthy.
+    status-reason: string,
     tags: string,
 }
 
@@ -130,6 +132,14 @@ export struct ServerDetail {
     last-error: string,
     /// The transport's own words, shown beneath the translation for diagnosis.
     last-error-detail: string,
+    /// Why the status is what it is, already phrased. Empty when healthy.
+    ///
+    /// Separate from `last-error`: that one is about not reaching the machine at all,
+    /// this one is about what the machine reported once reached.
+    status-reason: string,
+    /// True when the reason points at a measurement, so the interface can offer to open
+    /// its chart. A collector failure has no chart to open.
+    status-reason-has-chart: bool,
     cards: [StatCard],
     // `false` when the host has no Docker at all, which is different from having none
     // running — the panel is hidden entirely rather than shown empty.

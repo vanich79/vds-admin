@@ -79,6 +79,7 @@ fn read_state(row: &Row<'_>) -> Result<ServerRuntimeState, rusqlite::Error> {
     let memory_percent: Option<f64> = row.get(8)?;
     let disk_percent: Option<f64> = row.get(9)?;
     let last_error_kind: Option<String> = row.get(10)?;
+    let status_cause_json: Option<String> = row.get(11)?;
 
     Ok(ServerRuntimeState {
         server_id: ServerId::from_uuid(
@@ -100,6 +101,12 @@ fn read_state(row: &Row<'_>) -> Result<ServerRuntimeState, rusqlite::Error> {
         cpu_percent: cpu_percent.into(),
         memory_percent: memory_percent.into(),
         disk_percent: disk_percent.into(),
+        // A reason written by a newer build, in a shape this one does not know, becomes
+        // `None` rather than making the row unreadable. The status itself is the thing
+        // that must survive; the explanation is a courtesy.
+        status_cause: status_cause_json
+            .as_deref()
+            .and_then(|raw| serde_json::from_str(raw).ok()),
     })
 }
 
@@ -192,7 +199,7 @@ impl ServerRepository for SqliteServerRepository {
                 let mut statement = connection.prepare(
                     "SELECT server_id, status, last_check, last_success, consecutive_failures,
                             last_error, uptime_secs, cpu_percent, memory_percent, disk_percent,
-                            last_error_kind
+                            last_error_kind, status_cause_json
                      FROM server_state WHERE server_id = ?1",
                 )?;
                 let mut rows = statement.query_map([Sql(id)], read_state)?;
@@ -212,8 +219,8 @@ impl ServerRepository for SqliteServerRepository {
                 connection.execute(
                     "INSERT INTO server_state (server_id, status, last_check, last_success,
                          consecutive_failures, last_error, uptime_secs, cpu_percent,
-                         memory_percent, disk_percent, last_error_kind)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                         memory_percent, disk_percent, last_error_kind, status_cause_json)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
                      ON CONFLICT(server_id) DO UPDATE SET
                          status = excluded.status,
                          last_check = excluded.last_check,
@@ -224,7 +231,8 @@ impl ServerRepository for SqliteServerRepository {
                          cpu_percent = excluded.cpu_percent,
                          memory_percent = excluded.memory_percent,
                          disk_percent = excluded.disk_percent,
-                         last_error_kind = excluded.last_error_kind",
+                         last_error_kind = excluded.last_error_kind,
+                         status_cause_json = excluded.status_cause_json",
                     rusqlite::params![
                         Sql(state.server_id),
                         state.status.as_str(),
@@ -237,6 +245,10 @@ impl ServerRepository for SqliteServerRepository {
                         metric_column(state.memory_percent),
                         metric_column(state.disk_percent),
                         state.last_error_kind.map(|kind| kind.as_str()),
+                        state
+                            .status_cause
+                            .as_ref()
+                            .and_then(|cause| serde_json::to_string(cause).ok()),
                     ],
                 )?;
                 Ok(())
@@ -250,7 +262,7 @@ impl ServerRepository for SqliteServerRepository {
                 let mut statement = connection.prepare(
                     "SELECT server_id, status, last_check, last_success, consecutive_failures,
                             last_error, uptime_secs, cpu_percent, memory_percent, disk_percent,
-                            last_error_kind
+                            last_error_kind, status_cause_json
                      FROM server_state",
                 )?;
                 let rows = statement.query_map([], read_state)?;
@@ -556,6 +568,44 @@ mod tests {
             loaded.last_error.as_deref(),
             Some("authentication failed: bad key")
         );
+    }
+
+    #[tokio::test]
+    async fn the_reason_for_a_status_survives_a_round_trip() {
+        // Without this the interface can only show a colour, which is the complaint that
+        // put the column here: "Critical" beside a healthy-looking CPU and memory.
+        let repository = repository().await;
+        let server = sample_server("web-01");
+        repository.save(&server).await.expect("saved");
+
+        let mut state = ServerRuntimeState::unknown(server.id);
+        state.status = vds_domain::status::Status::Critical;
+        state.status_cause = Some(vds_domain::server::StatusCause::Metric {
+            metric: vds_domain::metrics::MetricKind::SwapUsage,
+            value: 96.4,
+            threshold: 90.0,
+        });
+        repository.save_state(&state).await.expect("saved");
+
+        let loaded = repository.load_state(server.id).await.expect("loaded");
+        match loaded.status_cause {
+            Some(vds_domain::server::StatusCause::Metric {
+                metric,
+                value,
+                threshold,
+            }) => {
+                assert_eq!(metric, vds_domain::metrics::MetricKind::SwapUsage);
+                assert_eq!(value, 96.4);
+                assert_eq!(threshold, 90.0);
+            }
+            other => panic!("expected the swap cause, got {other:?}"),
+        }
+
+        // And through the other query, which is a separate SELECT: updating one of the
+        // two and not the other is a mistake this file has made before.
+        let listed = repository.list_states().await.expect("listed");
+        assert_eq!(listed.len(), 1);
+        assert!(listed[0].status_cause.is_some(), "list_states dropped it");
     }
 
     #[tokio::test]

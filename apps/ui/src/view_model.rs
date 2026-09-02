@@ -21,6 +21,7 @@ use vds_domain::metrics::{MetricKind, MetricValue};
 use vds_domain::screenshot::ScreenshotPresentation;
 use vds_domain::server::{
     ContainerInfo, ProcessInfo, Server, ServerRuntimeState, ServerSnapshot, ServiceInfo,
+    StatusCause,
 };
 use vds_domain::website::{Website, WebsiteRuntimeState};
 
@@ -62,6 +63,40 @@ pub fn server_row(server: &Server, state: &ServerRuntimeState, now: DateTime<Utc
             .into(),
         last_check: format::relative_time(state.last_check, now).into(),
         tags: server.tags.join(", ").into(),
+        status_reason: describe_status_cause(state.status_cause.as_ref()).into(),
+    }
+}
+
+/// Why a server is not healthy, phrased for the person reading it.
+///
+/// The domain records the cause as data — which metric, what value, which threshold —
+/// precisely so this can be said in the user's language. A sentence formatted in the
+/// monitoring layer could not be.
+///
+/// Empty for a healthy server, which is what the interface checks to decide whether to
+/// show the banner at all.
+pub fn describe_status_cause(cause: Option<&StatusCause>) -> String {
+    let strings = crate::i18n::strings();
+    match cause {
+        Some(StatusCause::Metric {
+            metric,
+            value,
+            threshold,
+        }) => {
+            let unit = metric.unit();
+            fill3(
+                strings.sd_status_reason,
+                format::metric_kind_label(*metric),
+                &format::metric(MetricValue::Available(*value), unit),
+                &format::metric(MetricValue::Available(*threshold), unit),
+            )
+        }
+        // The collector's own message is passed through untranslated: it comes from the
+        // far side, and inventing a translation for it would be inventing its content.
+        Some(StatusCause::Collector { collector, message }) => {
+            fill2(strings.sd_status_reason_collector, collector, message)
+        }
+        None => String::new(),
     }
 }
 
@@ -137,6 +172,11 @@ pub fn server_detail(
             .unwrap_or_default(),
         // The transport's own words, kept beneath the translation for diagnosis.
         last_error_detail: state.last_error.clone().unwrap_or_default(),
+        status_reason: describe_status_cause(state.status_cause.as_ref()),
+        status_reason_has_chart: state
+            .status_cause
+            .as_ref()
+            .is_some_and(|cause| cause.metric().is_some()),
         cards,
         // `None` means the collector never ran or the host has no Docker; an empty vector
         // means Docker is there with nothing running. The panel is hidden only in the
@@ -1207,5 +1247,46 @@ mod tests {
             analytics_chart_title(AnalyticsMetric::Visitors, "30 days"),
             "Visitors — 30 days"
         );
+    }
+
+    #[test]
+    fn a_status_reason_names_the_measurement_and_its_threshold() {
+        // "Critical" beside a CPU at 4% and memory at 75% is what started this: the
+        // colour was right and said nothing about swap, which was the one that lost.
+        // The language is deliberately left alone: it is global state shared by every
+        // test in this binary, and setting it here made four unrelated ones fail.
+        // Everything asserted below reads the same in either language.
+        let text = describe_status_cause(Some(&StatusCause::Metric {
+            metric: MetricKind::SwapUsage,
+            value: 96.0,
+            threshold: 90.0,
+        }));
+
+        assert!(text.contains("96%"), "{text}");
+        assert!(
+            text.contains("90%"),
+            "the threshold gives the number meaning: {text}"
+        );
+        assert!(!text.contains("{}"), "a placeholder survived: {text}");
+    }
+
+    #[test]
+    fn a_healthy_server_produces_no_reason_at_all() {
+        // The interface shows the banner only when this is non-empty, so an empty string
+        // is what keeps a healthy server from carrying an explanation of nothing.
+        assert_eq!(describe_status_cause(None), "");
+    }
+
+    #[test]
+    fn a_broken_collector_is_quoted_rather_than_translated() {
+        // Its message comes from the far side. Inventing a translation for it would be
+        // inventing its content.
+        let text = describe_status_cause(Some(&StatusCause::Collector {
+            collector: "disk".into(),
+            message: "df exited with status 1".into(),
+        }));
+
+        assert!(text.contains("disk"), "{text}");
+        assert!(text.contains("df exited with status 1"), "{text}");
     }
 }

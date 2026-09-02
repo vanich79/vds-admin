@@ -185,6 +185,9 @@ pub struct Strings {
     pub tab_screenshot: &'static str,
     pub tab_history: &'static str,
     pub tab_rules: &'static str,
+    pub sd_status_reason: &'static str,
+    pub sd_status_reason_collector: &'static str,
+    pub sd_show_on_chart: &'static str,
     pub sd_system: &'static str,
     pub sd_operating_system: &'static str,
     pub sd_kernel: &'static str,
@@ -559,6 +562,9 @@ impl Strings {
             tab_screenshot: "Screenshots",
             tab_history: "History",
             tab_rules: "Rules",
+            sd_status_reason: "{}: {}, threshold {}",
+            sd_status_reason_collector: "Collector «{}»: {}",
+            sd_show_on_chart: "Show on the chart",
             sd_system: "System",
             sd_operating_system: "Operating system",
             sd_kernel: "Kernel",
@@ -739,7 +745,7 @@ impl Strings {
             shot_none_yet: "No screenshot yet",
             shot_offline: "Screenshot unavailable — the website is currently offline",
             shot_failed: "Screenshot generation failed: {}",
-            shot_unsupported: "Screenshots are not available on this machine",
+            shot_unsupported: "No Chromium-based browser was found. Install Chromium, Chrome, Brave, Edge or Vivaldi and the previews will appear by themselves.",
             ev_server_status: "Server went from {} to {}",
             ev_collection_failed: "Collection failed ({} in a row): {}",
             ev_website_status: "Website went from {} to {}",
@@ -933,6 +939,9 @@ impl Strings {
             tab_screenshot: "Скриншот",
             tab_history: "История",
             tab_rules: "Правила",
+            sd_status_reason: "{}: {} — порог {}",
+            sd_status_reason_collector: "Сборщик «{}»: {}",
+            sd_show_on_chart: "Показать на графике",
             sd_system: "Система",
             sd_operating_system: "Операционная система",
             sd_kernel: "Ядро",
@@ -1113,7 +1122,7 @@ impl Strings {
             shot_none_yet: "Скриншота ещё нет",
             shot_offline: "Скриншот недоступен — сайт сейчас не отвечает",
             shot_failed: "Не удалось сделать скриншот: {}",
-            shot_unsupported: "Скриншоты на этой машине недоступны",
+            shot_unsupported: "Не найден браузер на основе Chromium. Установите Chromium, Chrome, Brave, Edge или Vivaldi — превью появятся сами.",
             ev_server_status: "Сервер: {} → {}",
             ev_collection_failed: "Сбор не удался ({} раз подряд): {}",
             ev_website_status: "Сайт: {} → {}",
@@ -1344,6 +1353,9 @@ pub fn apply(window: &AppWindow, strings: &Strings) {
     global.set_tab_screenshot(strings.tab_screenshot.into());
     global.set_tab_history(strings.tab_history.into());
     global.set_tab_rules(strings.tab_rules.into());
+    global.set_sd_status_reason(strings.sd_status_reason.into());
+    global.set_sd_status_reason_collector(strings.sd_status_reason_collector.into());
+    global.set_sd_show_on_chart(strings.sd_show_on_chart.into());
     global.set_sd_system(strings.sd_system.into());
     global.set_sd_operating_system(strings.sd_operating_system.into());
     global.set_sd_kernel(strings.sd_kernel.into());

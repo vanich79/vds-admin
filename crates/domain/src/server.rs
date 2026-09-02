@@ -643,6 +643,8 @@ pub struct ServerRuntimeState {
     pub cpu_percent: MetricValue,
     pub memory_percent: MetricValue,
     pub disk_percent: MetricValue,
+    /// Which measurement made the status what it is. `None` when healthy.
+    pub status_cause: Option<StatusCause>,
 }
 
 impl ServerRuntimeState {
@@ -659,8 +661,139 @@ impl ServerRuntimeState {
             cpu_percent: MetricValue::NotAvailable,
             memory_percent: MetricValue::NotAvailable,
             disk_percent: MetricValue::NotAvailable,
+            status_cause: None,
         }
     }
+}
+
+/// Why a server is not healthy.
+///
+/// Carried beside the status because a status on its own is a colour. "Critical" tells a
+/// person that something is wrong and not one thing about what, where, or whether it is
+/// the same thing as yesterday. The overall status is the worst of a dozen measurements,
+/// and which one lost is exactly the information a colour throws away.
+///
+/// Structured rather than a sentence, for two reasons: a formatted English string cannot
+/// be translated after it exists — the lesson [`crate::ports::TransportErrorKind`] already
+/// taught — and the interface can only link to the metric that caused this if it knows
+/// which metric that was.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum StatusCause {
+    /// A measurement crossed one of the server's thresholds.
+    Metric {
+        metric: crate::metrics::MetricKind,
+        value: f64,
+        /// The threshold it crossed — the critical one when critical, the warning one
+        /// when warning. Shown beside the value, because "96%" means nothing without it.
+        threshold: f64,
+    },
+    /// A collector could not do its job. Distinct from a missing capability, which is
+    /// not a fault and never reaches here.
+    Collector { collector: String, message: String },
+}
+
+impl StatusCause {
+    /// The metric this points at, when it points at one.
+    ///
+    /// The interface uses it to open the chart the trouble is on, which is the difference
+    /// between naming a problem and finding it.
+    pub fn metric(&self) -> Option<crate::metrics::MetricKind> {
+        match self {
+            StatusCause::Metric { metric, .. } => Some(*metric),
+            StatusCause::Collector { .. } => None,
+        }
+    }
+}
+
+/// Picks the cause behind an overall status.
+///
+/// The worst result wins; among equals, the first, which is the order
+/// [`evaluate_snapshot`] pushes them in — CPU, memory, swap, disk. That order is not
+/// arbitrary and not alphabetical: it runs from the measurement people check first to the
+/// one they check last.
+///
+/// Returns `None` for a healthy server, which has nothing to explain.
+pub fn worst_cause(
+    results: &[MetricResult],
+    thresholds: &MonitoringThresholds,
+    outcomes: &[crate::metrics::CollectorOutcome],
+) -> Option<StatusCause> {
+    // The first among equals, not the last: `max_by_key` would return the last, and the
+    // order results arrive in runs from the measurement people check first to the one
+    // they check last. Naming disk when CPU is equally critical would be technically
+    // right and practically unhelpful.
+    let worst_metric = results
+        .iter()
+        .filter(|r| matches!(r.status, Status::Warning | Status::Critical))
+        .fold(None::<&MetricResult>, |best, r| match best {
+            Some(b) if b.status >= r.status => Some(b),
+            _ => Some(r),
+        });
+
+    let from_metrics = worst_metric.and_then(|r| {
+        let threshold = threshold_for(r.kind, thresholds)?;
+        Some((
+            r.status,
+            StatusCause::Metric {
+                metric: r.kind,
+                value: r.value.value()?,
+                threshold: if r.status == Status::Critical {
+                    threshold.critical
+                } else {
+                    threshold.warning
+                },
+            },
+        ))
+    });
+
+    let from_collectors = outcomes
+        .iter()
+        .filter(|o| matches!(o.status, Status::Warning | Status::Critical))
+        .fold(
+            None::<&crate::metrics::CollectorOutcome>,
+            |best, o| match best {
+                Some(b) if b.status >= o.status => Some(b),
+                _ => Some(o),
+            },
+        )
+        .map(|o| {
+            (
+                o.status,
+                StatusCause::Collector {
+                    collector: o.collector.to_string(),
+                    message: o.message.clone().unwrap_or_default(),
+                },
+            )
+        });
+
+    match (from_metrics, from_collectors) {
+        (Some((ms, metric)), Some((cs, collector))) => {
+            // A measurement is more actionable than a collector that misbehaved, so it
+            // wins a tie.
+            Some(if cs > ms { collector } else { metric })
+        }
+        (Some((_, metric)), None) => Some(metric),
+        (None, Some((_, collector))) => Some(collector),
+        (None, None) => None,
+    }
+}
+
+/// The threshold a metric is judged against, when it has one.
+fn threshold_for(
+    kind: crate::metrics::MetricKind,
+    thresholds: &MonitoringThresholds,
+) -> Option<Threshold> {
+    use crate::metrics::MetricKind;
+    Some(match kind {
+        MetricKind::CpuUsage => thresholds.cpu,
+        MetricKind::MemoryUsage => thresholds.memory,
+        MetricKind::SwapUsage => thresholds.swap,
+        MetricKind::DiskUsage => thresholds.disk,
+        MetricKind::LoadAverage1 => thresholds.load_per_core,
+        MetricKind::TemperatureCelsius => thresholds.temperature,
+        _ => return None,
+    })
 }
 
 /// Evaluates a snapshot against a server's thresholds.
@@ -1081,5 +1214,140 @@ mod tests {
         assert_eq!(ContainerHealth::parse("thriving"), ContainerHealth::None);
         assert_eq!(ContainerHealth::parse(""), ContainerHealth::None);
         assert_eq!(ContainerHealth::parse("HEALTHY"), ContainerHealth::Healthy);
+    }
+
+    fn result(kind: crate::metrics::MetricKind, value: f64, status: Status) -> MetricResult {
+        MetricResult::new(kind, MetricValue::Available(value), status, at(0))
+    }
+
+    fn outcome(name: &str, status: Status, message: &str) -> crate::metrics::CollectorOutcome {
+        crate::metrics::CollectorOutcome {
+            collector: crate::ids::CollectorId::new(name),
+            status,
+            message: Some(message.to_owned()),
+        }
+    }
+
+    #[test]
+    fn a_healthy_server_has_nothing_to_explain() {
+        use crate::metrics::MetricKind;
+        let results = vec![
+            result(MetricKind::CpuUsage, 4.0, Status::Healthy),
+            result(MetricKind::MemoryUsage, 75.0, Status::Healthy),
+        ];
+        assert_eq!(
+            worst_cause(&results, &MonitoringThresholds::default(), &[]),
+            None
+        );
+    }
+
+    #[test]
+    fn the_cause_names_the_measurement_that_lost() {
+        // The complaint this exists for: a server showing "Critical" with CPU at 4% and
+        // memory at 75%, and nothing on screen saying it was swap.
+        use crate::metrics::MetricKind;
+        let thresholds = MonitoringThresholds::default();
+        let results = vec![
+            result(MetricKind::CpuUsage, 4.0, Status::Healthy),
+            result(MetricKind::MemoryUsage, 75.0, Status::Healthy),
+            result(MetricKind::SwapUsage, 96.0, Status::Critical),
+            result(MetricKind::DiskUsage, 58.0, Status::Healthy),
+        ];
+
+        let cause = worst_cause(&results, &thresholds, &[]).expect("a cause");
+        match cause {
+            StatusCause::Metric {
+                metric,
+                value,
+                threshold,
+            } => {
+                assert_eq!(metric, MetricKind::SwapUsage);
+                assert_eq!(value, 96.0);
+                // The critical threshold, because the status is critical: quoting the
+                // warning one beside a critical value would read as a contradiction.
+                assert_eq!(threshold, thresholds.swap.critical);
+            }
+            other => panic!("expected a metric cause, got {other:?}"),
+        }
+        assert_eq!(cause.metric(), Some(MetricKind::SwapUsage));
+    }
+
+    #[test]
+    fn critical_beats_warning_however_they_are_ordered() {
+        use crate::metrics::MetricKind;
+        let thresholds = MonitoringThresholds::default();
+        let results = vec![
+            result(MetricKind::CpuUsage, 88.0, Status::Warning),
+            result(MetricKind::DiskUsage, 97.0, Status::Critical),
+        ];
+        assert_eq!(
+            worst_cause(&results, &thresholds, &[]).and_then(|c| c.metric()),
+            Some(MetricKind::DiskUsage)
+        );
+
+        // And the other way round in the list, so this is not an artefact of position.
+        let reversed = vec![
+            result(MetricKind::DiskUsage, 97.0, Status::Critical),
+            result(MetricKind::CpuUsage, 88.0, Status::Warning),
+        ];
+        assert_eq!(
+            worst_cause(&reversed, &thresholds, &[]).and_then(|c| c.metric()),
+            Some(MetricKind::DiskUsage)
+        );
+    }
+
+    #[test]
+    fn among_equals_the_one_people_look_at_first_wins() {
+        // Both critical. Naming disk when CPU is equally bad would be technically right
+        // and practically unhelpful, and the evaluation order runs from the measurement
+        // people check first to the one they check last.
+        use crate::metrics::MetricKind;
+        let results = vec![
+            result(MetricKind::CpuUsage, 99.0, Status::Critical),
+            result(MetricKind::DiskUsage, 99.0, Status::Critical),
+        ];
+        assert_eq!(
+            worst_cause(&results, &MonitoringThresholds::default(), &[]).and_then(|c| c.metric()),
+            Some(MetricKind::CpuUsage)
+        );
+    }
+
+    #[test]
+    fn a_broken_collector_is_a_cause_when_nothing_else_is() {
+        let outcomes = vec![outcome("disk", Status::Warning, "df exited with status 1")];
+        match worst_cause(&[], &MonitoringThresholds::default(), &outcomes) {
+            Some(StatusCause::Collector { collector, message }) => {
+                assert_eq!(collector, "disk");
+                assert!(message.contains("df"), "{message}");
+            }
+            other => panic!("expected a collector cause, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_measurement_beats_a_collector_at_the_same_severity() {
+        // "Swap is at 96%" is something a person can act on. "The disk collector
+        // returned nothing" is something they can only wonder about.
+        use crate::metrics::MetricKind;
+        let results = vec![result(MetricKind::SwapUsage, 96.0, Status::Critical)];
+        let outcomes = vec![outcome("disk", Status::Critical, "no output")];
+
+        assert_eq!(
+            worst_cause(&results, &MonitoringThresholds::default(), &outcomes)
+                .and_then(|c| c.metric()),
+            Some(MetricKind::SwapUsage)
+        );
+    }
+
+    #[test]
+    fn a_metric_with_no_threshold_is_never_a_cause() {
+        // Uptime and process counts are reported, not judged. Naming one as the reason a
+        // server is critical would be nonsense.
+        use crate::metrics::MetricKind;
+        let results = vec![result(MetricKind::UptimeSeconds, 1.0, Status::Critical)];
+        assert_eq!(
+            worst_cause(&results, &MonitoringThresholds::default(), &[]),
+            None
+        );
     }
 }

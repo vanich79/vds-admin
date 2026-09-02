@@ -569,6 +569,42 @@ export component ServerDetailScreen inherits VerticalLayout {
         }
     }
 
+    // Why the status is what it is. A colour on its own sends a person hunting through
+    // eight tabs; this names the measurement and offers to open its chart.
+    if root.server.status-reason != "": Rectangle {
+        background: (root.server.status == "critical"
+            ? Theme.status-critical
+            : Theme.status-warning).with-alpha(0.12);
+        border-radius: Theme.radius-sm;
+        border-width: 1px;
+        border-color: (root.server.status == "critical"
+            ? Theme.status-critical
+            : Theme.status-warning).with-alpha(0.4);
+
+        HorizontalLayout {
+            padding: Theme.space-sm;
+            spacing: Theme.space-sm;
+
+            Text {
+                text: root.server.status-reason;
+                font-size: Theme.text-sm;
+                color: root.server.status == "critical"
+                    ? Theme.status-critical
+                    : Theme.status-warning;
+                vertical-alignment: center;
+                wrap: word-wrap;
+                horizontal-stretch: 1;
+            }
+
+            if root.server.status-reason-has-chart: FlatButton {
+                text: L.sd_show_on_chart;
+                // The Metrics tab, where every measurement has a chart. Jumping there is
+                // the difference between naming a problem and finding it.
+                clicked => { root.tab = 1; }
+            }
+        }
+    }
+
     SegmentedControl {
         options: root.tabs;
         selected <=> root.tab;

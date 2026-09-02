@@ -109,6 +109,11 @@ ENTRIES = [
     ("tab_history", "History", "История"),
     ("tab_rules", "Rules", "Правила"),
 
+    # Why a server is not healthy. A status is a colour; these say which measurement lost.
+    ("sd_status_reason", "{}: {}, threshold {}", "{}: {} — порог {}"),
+    ("sd_status_reason_collector", "Collector \u00ab{}\u00bb: {}", "Сборщик \u00ab{}\u00bb: {}"),
+    ("sd_show_on_chart", "Show on the chart", "Показать на графике"),
+
     ("sd_system", "System", "Система"),
     ("sd_operating_system", "Operating system", "Операционная система"),
     ("sd_kernel", "Kernel", "Ядро"),
@@ -360,8 +365,12 @@ ENTRIES = [
     ("shot_offline", "Screenshot unavailable — the website is currently offline",
      "Скриншот недоступен — сайт сейчас не отвечает"),
     ("shot_failed", "Screenshot generation failed: {}", "Не удалось сделать скриншот: {}"),
-    ("shot_unsupported", "Screenshots are not available on this machine",
-     "Скриншоты на этой машине недоступны"),
+    # Names the remedy. "Not available" on its own leaves a person with nothing to try.
+    ("shot_unsupported",
+     "No Chromium-based browser was found. Install Chromium, Chrome, Brave, Edge or "
+     "Vivaldi and the previews will appear by themselves.",
+     "Не найден браузер на основе Chromium. Установите Chromium, Chrome, Brave, Edge или "
+     "Vivaldi — превью появятся сами."),
 
     # --- event feed ---------------------------------------------------------------
     ("ev_server_status", "Server went from {} to {}", "Сервер: {} → {}"),

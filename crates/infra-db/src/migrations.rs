@@ -15,7 +15,7 @@ use crate::connection::Database;
 use vds_domain::ports::RepositoryError;
 
 /// The schema version this build expects.
-pub const SCHEMA_VERSION: u32 = 2;
+pub const SCHEMA_VERSION: u32 = 3;
 
 /// One migration step.
 pub struct Migration {
@@ -41,7 +41,26 @@ pub const MIGRATIONS: &[Migration] = &[
         destructive: false,
         sql: V2,
     },
+    Migration {
+        version: 3,
+        description: "record which measurement made the status what it is",
+        destructive: false,
+        sql: V3,
+    },
 ];
+
+/// Adds the reason beside the status.
+///
+/// A status is a colour. "Critical" beside a server whose CPU is at 4% and memory at 75%
+/// tells a person that something is wrong and nothing about what — the overall status is
+/// the worst of a dozen measurements, and which one lost is exactly what the colour threw
+/// away. This column keeps it.
+///
+/// JSON rather than columns because the cause has two shapes — a measurement against its
+/// threshold, and a collector that failed — and neither is ever queried on. Nullable, so
+/// existing rows simply have no reason recorded until their next check, which is a few
+/// seconds away.
+const V3: &str = "ALTER TABLE server_state ADD COLUMN status_cause_json TEXT;";
 
 /// Adds the failure kind beside the failure message.
 ///

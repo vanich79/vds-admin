@@ -25,8 +25,16 @@ const EXECUTABLE_NAMES: &[&str] = &[
     "chromium-browser",
     "google-chrome",
     "google-chrome-stable",
+    // Arch, Fedora and the AUR each name Brave differently, and the plain `brave` is the
+    // one Arch's own package installs — which is where this list was found wanting.
+    "brave",
     "brave-browser",
+    "brave-browser-stable",
     "microsoft-edge",
+    "microsoft-edge-stable",
+    "vivaldi",
+    "vivaldi-stable",
+    "chromium-freeworld",
     "chrome",
 ];
 
@@ -57,9 +65,49 @@ const WELL_KNOWN_PATHS: &[&str] = &[
     "/usr/bin/chromium-browser",
     "/usr/bin/google-chrome",
     "/usr/bin/google-chrome-stable",
+    "/usr/bin/brave",
+    "/usr/bin/brave-browser",
+    "/usr/bin/microsoft-edge-stable",
+    "/usr/bin/vivaldi-stable",
+    "/usr/lib/chromium/chromium",
+    "/opt/brave-bin/brave",
+    "/opt/google/chrome/chrome",
     "/snap/bin/chromium",
+    "/snap/bin/brave",
+    // System-wide Flatpaks. The per-user ones live under `$HOME` and are found by
+    // `user_flatpak_paths` instead, since a constant cannot know the home directory.
     "/var/lib/flatpak/exports/bin/org.chromium.Chromium",
+    "/var/lib/flatpak/exports/bin/com.google.Chrome",
+    "/var/lib/flatpak/exports/bin/com.brave.Browser",
+    "/var/lib/flatpak/exports/bin/com.microsoft.Edge",
 ];
+
+/// Flatpaks installed for this user rather than for the machine.
+///
+/// `flatpak install --user` is the default when a desktop's software centre offers it, so
+/// this is not an exotic case — it is where a browser most often is on a machine whose
+/// owner never used `sudo` to get it.
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+fn user_flatpak_paths() -> Vec<PathBuf> {
+    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
+        return Vec::new();
+    };
+    let exports = home.join(".local/share/flatpak/exports/bin");
+    [
+        "org.chromium.Chromium",
+        "com.google.Chrome",
+        "com.brave.Browser",
+        "com.microsoft.Edge",
+    ]
+    .iter()
+    .map(|id| exports.join(id))
+    .collect()
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+fn user_flatpak_paths() -> Vec<PathBuf> {
+    Vec::new()
+}
 
 /// Captures pages with a local headless browser.
 #[derive(Debug, Clone)]
@@ -230,6 +278,15 @@ fn find_browser() -> Option<PathBuf> {
         let path = Path::new(path);
         if path.exists() {
             return Some(path.to_path_buf());
+        }
+    }
+
+    // A Flatpak installed for this user rather than the machine. Checked before `PATH`
+    // for the same reason as the fixed locations: it is an exact answer, and searching
+    // every directory on `PATH` for a dozen names is not.
+    for path in user_flatpak_paths() {
+        if path.exists() {
+            return Some(path);
         }
     }
 
