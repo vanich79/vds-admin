@@ -17,6 +17,14 @@ unwrap_used = "deny"
 expect_used = "deny"
 panic = "deny"
 
+# Both, and the library is the real one. Android loads a shared object and calls
+# `android_main`; it never runs a `main`, so the application lives in the library and the
+# binary is six lines on top of it.
+[lib]
+name = "vds_admin"
+crate-type = ["lib", "cdylib"]
+path = "src/lib.rs"
+
 [[bin]]
 name = "vds-admin"
 path = "src/main.rs"
@@ -65,12 +73,20 @@ vds-composition.workspace = true
 
 async-trait.workspace = true
 chrono.workspace = true
-slint = { workspace = true, features = ["backend-winit", "renderer-software"] }
 copypasta = "0.10"
 image.workspace = true
 tokio = { workspace = true }
 tokio-util.workspace = true
 tracing.workspace = true
+
+# winit drives a desktop window; on Android the system owns the surface and
+# `android-activity` hands it to Slint instead. Compiling both would be asking winit to
+# work somewhere it does not.
+[target.'cfg(not(target_os = "android"))'.dependencies]
+slint = { workspace = true, features = ["backend-winit", "renderer-software"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+slint = { workspace = true, features = ["backend-android-activity-06", "renderer-software"] }
 
 [build-dependencies]
 slint-build.workspace = true

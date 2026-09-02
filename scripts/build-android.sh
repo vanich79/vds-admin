@@ -52,6 +52,9 @@ done
 
 [ -n "${ANDROID_HOME:-}" ] || die "ANDROID_HOME is not set; see docs/CROSS_COMPILATION.md"
 [ -n "${ANDROID_NDK_ROOT:-}" ] || die "ANDROID_NDK_ROOT is not set; see docs/CROSS_COMPILATION.md"
+# `--lib` on both invocations below is not optional: Android loads a shared object and
+# calls `android_main`. Building the binary target instead produces an executable no
+# Android device will ever start.
 command -v cargo-apk >/dev/null 2>&1 || die "cargo-apk is not installed: cargo install cargo-apk"
 
 # Rust target per Android ABI. The mapping is fixed by the NDK, not by us.
@@ -79,10 +82,10 @@ for abi in "${ABIS[@]}"; do
     rustup target add "$target" >/dev/null 2>&1 || true
 
     if [ "$BUILD_TYPE" = "release" ]; then
-        cargo apk build --release --target "$target" --package vds-admin
+        cargo apk build --release --target "$target" --package vds-admin --lib
         built="target/release/apk/$abi/vds-admin.apk"
     else
-        cargo apk build --target "$target" --package vds-admin
+        cargo apk build --target "$target" --package vds-admin --lib
         built="target/debug/apk/$abi/vds-admin.apk"
     fi
 
