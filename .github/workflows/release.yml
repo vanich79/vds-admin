@@ -163,9 +163,19 @@ jobs:
       - name: Restore the signing keystore
         # Without a keystore the build script produces a debug APK and says so, rather
         # than an unsigned release APK that nobody can install.
-        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        #
+        # The secret is read through `env` rather than tested in `if`. GitHub does not
+        # provide the `secrets` context to a step condition, and using it there does not
+        # skip the step — it rejects the whole file, which is why every release run here
+        # failed in a second with no jobs at all.
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
-          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/release.keystore"
+          if [ -z "$KEYSTORE" ]; then
+            echo "no signing keystore configured; the build will produce a debug APK"
+            exit 0
+          fi
+          echo "$KEYSTORE" | base64 -d > "$RUNNER_TEMP/release.keystore"
           echo "ANDROID_KEYSTORE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
 
       - name: Build
@@ -224,11 +234,16 @@ jobs:
         # cannot produce a matching pair of artefacts and signature. Optional: without
         # the secret the release still carries checksums, and docs/AGENT.md describes
         # what that does and does not protect against.
-        if: ${{ secrets.GPG_SIGNING_KEY != '' }}
+        # Tested inside the script, not in `if`: the `secrets` context is not available
+        # to a step condition, and naming it there invalidates the workflow file.
         env:
           GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: |
+          if [ -z "$GPG_SIGNING_KEY" ]; then
+            echo "no signing key configured; the release carries checksums without a signature"
+            exit 0
+          fi
           echo "$GPG_SIGNING_KEY" | gpg --batch --import
           gpg --batch --yes --pinentry-mode loopback --passphrase "$GPG_PASSPHRASE" \
             --armor --detach-sign --output release/SHA256SUMS.asc release/SHA256SUMS
