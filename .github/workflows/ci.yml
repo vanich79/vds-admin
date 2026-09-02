@@ -174,7 +174,11 @@ jobs:
 
   # --- the Android APK ------------------------------------------------------------------
   android:
-    name: Android
+    # The caveat is in the name because the name is all most people see. `continue-on-error`
+    # keeps this from failing the run, which means the run's tick goes green whether the
+    # APK built or not — and a green tick beside the word "Android" reads as "the APK
+    # built". It does not yet.
+    name: Android (APK does not build yet)
     runs-on: ubuntu-latest
     needs: [lint]
     # Known to fail, and allowed to. `apps/ui` is a binary; Android needs a `cdylib` with
