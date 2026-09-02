@@ -38,7 +38,7 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            script: build-linux.sh --formats tar,deb
+            script: build-linux.sh --formats tar,deb,appimage
             artefacts: dist/linux
           - os: windows-latest
             script: build-windows.sh --installer
@@ -61,6 +61,20 @@ jobs:
           sudo apt-get install --no-install-recommends -y \
             libfontconfig1-dev libxkbcommon-dev
           cargo install cargo-deb --locked
+
+      # Extracted rather than run as an AppImage. GitHub's runners have no libfuse2, so
+      # the tool cannot mount itself; unpacking it once sidesteps the whole question.
+      - name: Install appimagetool
+        if: runner.os == 'Linux'
+        run: |
+          url=https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          curl -fsSL -o appimagetool.AppImage "$url"
+          chmod +x appimagetool.AppImage
+          ./appimagetool.AppImage --appimage-extract > /dev/null
+          sudo mv squashfs-root /opt/appimagetool
+          sudo ln -sf /opt/appimagetool/AppRun /usr/local/bin/appimagetool
+          rm appimagetool.AppImage
+          appimagetool --version
 
       - name: Install NSIS
         if: runner.os == 'Windows'

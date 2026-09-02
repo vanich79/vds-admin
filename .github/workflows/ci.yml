@@ -143,6 +143,35 @@ jobs:
       - name: Build
         run: cargo build --release --package vds-admin
 
+      # Packaged on every run, not only on a tag. An AppImage that is only produced by a
+      # release is one nobody tries until the release, which is the worst moment to
+      # discover it does not start.
+      #
+      # Extracted rather than executed: the runners have no libfuse2, so appimagetool
+      # cannot mount itself.
+      - name: Install appimagetool
+        if: runner.os == 'Linux'
+        run: |
+          url=https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          curl -fsSL -o appimagetool.AppImage "$url"
+          chmod +x appimagetool.AppImage
+          ./appimagetool.AppImage --appimage-extract > /dev/null
+          sudo mv squashfs-root /opt/appimagetool
+          sudo ln -sf /opt/appimagetool/AppRun /usr/local/bin/appimagetool
+          rm appimagetool.AppImage
+
+      - name: Package the AppImage
+        if: runner.os == 'Linux'
+        run: bash scripts/build-linux.sh --formats tar,appimage
+
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Linux'
+        with:
+          name: linux-appimage
+          path: dist/linux/*
+          if-no-files-found: error
+          retention-days: 30
+
   # --- the Android APK ------------------------------------------------------------------
   android:
     name: Android

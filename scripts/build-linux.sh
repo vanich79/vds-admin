@@ -99,13 +99,26 @@ if has_format appimage; then
         say "Packaging AppImage"
         root="$(mktemp -d)/$APP.AppDir"
         install -D -m 0755 "$BINARY" "$root/usr/bin/$APP"
+
+        # Twice over, and both are load-bearing. `appimagetool` reads the copies at the
+        # AppDir root to build the image's own metadata; the copies under `usr/share` are
+        # what a desktop environment finds if the user ever integrates the AppImage into
+        # their menu. Shipping only the first pair produces an image that runs and cannot
+        # be pinned anywhere.
         install -D -m 0644 packaging/linux/vds-admin.desktop "$root/$APP.desktop"
         install -D -m 0644 packaging/linux/vds-admin.svg "$root/$APP.svg"
+        install -D -m 0644 packaging/linux/vds-admin.desktop \
+            "$root/usr/share/applications/$APP.desktop"
+        install -D -m 0644 packaging/linux/vds-admin.svg \
+            "$root/usr/share/icons/hicolor/scalable/apps/$APP.svg"
 
         # AppImage requires AppRun to be executable and to exec the real binary.
         cat > "$root/AppRun" <<'APPRUN'
 #!/bin/sh
+# Resolve the real location: the AppImage mounts itself somewhere unpredictable, and a
+# relative path would be resolved against the caller's working directory.
 HERE="$(dirname "$(readlink -f "$0")")"
+export PATH="$HERE/usr/bin:$PATH"
 exec "$HERE/usr/bin/vds-admin" "$@"
 APPRUN
         chmod 0755 "$root/AppRun"
@@ -113,8 +126,11 @@ APPRUN
         ARCH="$(uname -m)" appimagetool "$root" "$OUT_DIR/$APP-$VERSION-$(uname -m).AppImage"
         rm -rf "$(dirname "$root")"
     else
-        warn "appimagetool is not installed; skipping AppImage"
-        warn "  https://github.com/AppImage/AppImageKit/releases"
+        # Asked for by name and not produced: a release that quietly ships one format
+        # fewer than it was told to is worse than one that stops.
+        die "appimagetool is not installed, so the AppImage cannot be built.
+  Install it from https://github.com/AppImage/appimagetool/releases, or drop
+  'appimage' from --formats."
     fi
 fi
 
