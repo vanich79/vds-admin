@@ -59,7 +59,37 @@ impl Database {
             })
             .await
             .unwrap_or_default();
-        tracing::info!(configured = ?path, opened, "database opened");
+        // Size and page count identify the file itself, so that "the application and the
+        // disk disagree about what is stored" can be settled rather than argued about.
+        let shape = database
+            .call(|connection| {
+                let pages: i64 = connection.query_row("PRAGMA page_count", [], |r| r.get(0))?;
+                let page_size: i64 = connection.query_row("PRAGMA page_size", [], |r| r.get(0))?;
+                let version: i64 = connection.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+                let servers: i64 = connection
+                    .query_row("SELECT COUNT(*) FROM servers", [], |r| r.get(0))
+                    .unwrap_or(-1);
+                let websites: i64 = connection
+                    .query_row("SELECT COUNT(*) FROM websites", [], |r| r.get(0))
+                    .unwrap_or(-1);
+                Ok((pages, page_size, version, servers, websites))
+            })
+            .await;
+
+        match shape {
+            Ok((pages, page_size, version, servers, websites)) => tracing::info!(
+                configured = ?path,
+                opened,
+                bytes = pages * page_size,
+                user_version = version,
+                servers,
+                websites,
+                "database opened"
+            ),
+            Err(error) => {
+                tracing::info!(configured = ?path, opened, %error, "database opened")
+            }
+        }
 
         database.check_integrity(&path).await?;
         crate::migrations::apply(&database).await?;
