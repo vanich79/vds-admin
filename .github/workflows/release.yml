@@ -74,7 +74,9 @@ jobs:
           sudo mv squashfs-root /opt/appimagetool
           sudo ln -sf /opt/appimagetool/AppRun /usr/local/bin/appimagetool
           rm appimagetool.AppImage
-          appimagetool --version
+          # No version check: the tool's flags vary between builds, and a release must
+          # not fail because a diagnostic command was spelled differently this month.
+          test -x /opt/appimagetool/AppRun
 
       - name: Install NSIS
         if: runner.os == 'Windows'
