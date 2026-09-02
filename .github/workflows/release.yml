@@ -137,10 +137,6 @@ jobs:
     name: Android APK
     needs: [verify]
     runs-on: ubuntu-latest
-    # Allowed to fail for the same reason as in CI: `apps/ui` is a binary and Android
-    # needs a `cdylib`. `publish` waits on this job, so left blocking it would mean no
-    # release could ever be made — the desktop builds would succeed and be thrown away.
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
         with:
@@ -194,10 +190,6 @@ jobs:
   publish:
     name: Publish
     needs: [desktop, agent, android]
-    # `continue-on-error` keeps the Android job from failing the run, but a dependent job
-    # is still skipped unless it says otherwise. This publishes when the builds that
-    # matter succeeded, and does not when they did not.
-    if: ${{ !cancelled() && needs.desktop.result == 'success' && needs.agent.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

@@ -174,19 +174,9 @@ jobs:
 
   # --- the Android APK ------------------------------------------------------------------
   android:
-    # The caveat is in the name because the name is all most people see. `continue-on-error`
-    # keeps this from failing the run, which means the run's tick goes green whether the
-    # APK built or not — and a green tick beside the word "Android" reads as "the APK
-    # built". It does not yet.
-    name: Android (APK does not build yet)
+    name: Android
     runs-on: ubuntu-latest
     needs: [lint]
-    # Known to fail, and allowed to. `apps/ui` is a binary; Android needs a `cdylib` with
-    # an `android_main`, which is a structural change to the crate rather than a build
-    # flag. Until that is done the job is a standing reminder, not a gate: leaving it
-    # blocking meant every run was red, so a real failure anywhere else looked the same as
-    # this one — and no release could ever be built, because the release waits on CI.
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
