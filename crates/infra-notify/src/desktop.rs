@@ -110,47 +110,84 @@ impl NotificationProvider for DesktopNotificationProvider {
             ));
         }
 
-        let application = self.application_name.clone();
-        let summary = notification.title.clone();
-        let body = truncate(&notification.body, 256);
-        let urgent = Self::is_urgent(notification.severity);
-        let sound = self.sound;
-
-        // `notify-rust` is blocking, and on Linux it is a D-Bus round trip that can stall
-        // if the daemon is wedged. Keeping it off the runtime's worker threads means a
-        // hung notification daemon cannot stall monitoring.
-        tokio::task::spawn_blocking(move || {
-            let mut builder = notify_rust::Notification::new();
-            builder.appname(&application).summary(&summary).body(&body);
-
-            if sound {
-                builder.sound_name("message-new-instant");
-            }
-
-            #[cfg(all(unix, not(target_os = "macos")))]
-            {
-                builder.urgency(if urgent {
-                    notify_rust::Urgency::Critical
-                } else {
-                    notify_rust::Urgency::Normal
-                });
-                // A critical alert should stay on screen until acknowledged rather than
-                // vanishing while the operator is looking elsewhere.
-                if urgent {
-                    builder.timeout(notify_rust::Timeout::Never);
-                }
-            }
-            #[cfg(not(all(unix, not(target_os = "macos"))))]
-            let _ = urgent;
-
-            builder
-                .show()
-                .map(|_| ())
-                .map_err(|e| NotificationError::Delivery(e.to_string()))
-        })
+        deliver(
+            self.application_name.clone(),
+            notification.title.clone(),
+            truncate(&notification.body, 256),
+            Self::is_urgent(notification.severity),
+            self.sound,
+        )
         .await
-        .map_err(|e| NotificationError::Delivery(format!("notification task failed: {e}")))?
     }
+}
+
+/// Hands a notification to the platform.
+///
+/// Split by platform because `notify-rust` is not merely unavailable on Android — it does
+/// not build for it, and the dependency is declared for the three desktops only. A
+/// runtime check cannot help with that: code that names a crate must compile everywhere
+/// the crate is compiled, and this file is compiled everywhere.
+#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
+async fn deliver(
+    application: String,
+    summary: String,
+    body: String,
+    urgent: bool,
+    sound: bool,
+) -> Result<(), NotificationError> {
+    // `notify-rust` is blocking, and on Linux it is a D-Bus round trip that can stall if
+    // the daemon is wedged. Keeping it off the runtime's worker threads means a hung
+    // notification daemon cannot stall monitoring.
+    tokio::task::spawn_blocking(move || {
+        let mut builder = notify_rust::Notification::new();
+        builder.appname(&application).summary(&summary).body(&body);
+
+        if sound {
+            builder.sound_name("message-new-instant");
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            builder.urgency(if urgent {
+                notify_rust::Urgency::Critical
+            } else {
+                notify_rust::Urgency::Normal
+            });
+            // A critical alert should stay on screen until acknowledged rather than
+            // vanishing while the operator is looking elsewhere.
+            if urgent {
+                builder.timeout(notify_rust::Timeout::Never);
+            }
+        }
+        #[cfg(not(target_os = "linux"))]
+        let _ = urgent;
+
+        builder
+            .show()
+            .map(|_| ())
+            .map_err(|e| NotificationError::Delivery(e.to_string()))
+    })
+    .await
+    .map_err(|e| NotificationError::Delivery(format!("notification task failed: {e}")))?
+}
+
+/// The same, where there is no desktop to notify.
+///
+/// Unreachable in practice — `is_available` already returns false on these platforms, and
+/// `notify` checks it first — but it has to exist for the file to compile, and returning
+/// the honest error is better than an `unreachable!` that would be a panic if the two
+/// checks ever drifted apart.
+#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+async fn deliver(
+    _application: String,
+    _summary: String,
+    _body: String,
+    _urgent: bool,
+    _sound: bool,
+) -> Result<(), NotificationError> {
+    Err(NotificationError::Unavailable(
+        "this platform has no desktop notification system this build can reach".to_owned(),
+    ))
 }
 
 /// Shortens text to fit a toast, on a character boundary.
