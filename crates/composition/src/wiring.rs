@@ -30,9 +30,9 @@ use vds_infra_db::{
 };
 use vds_infra_notify::{DesktopNotificationProvider, WebhookNotificationProvider};
 use vds_infra_screenshot::{ChromiumScreenshotProvider, FilesystemScreenshotStore};
-use vds_infra_secrets::{
-    EncryptedFileStore, FileSecretStore, OsKeyringStore, ResolvedSecretStore, SecretBackend,
-};
+#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
+use vds_infra_secrets::OsKeyringStore;
+use vds_infra_secrets::{EncryptedFileStore, FileSecretStore, ResolvedSecretStore, SecretBackend};
 use vds_infra_ssh::{KnownHosts, SshServerProbe};
 use vds_infra_web::HttpWebsiteChecker;
 
@@ -467,36 +467,48 @@ async fn resolve_secrets(
         SecretsSetup::Automatic {
             fallback_passphrase,
         } => {
-            let keyring = OsKeyringStore::new();
-
             // Probe rather than assume: on a headless Linux box the keystore is usually
             // absent, and discovering that during the first SSH connection would be far
             // too late.
-            match keyring.probe().await {
-                Ok(()) => {
-                    let backend =
-                        SecretBackend::OsKeyring(OsKeyringStore::platform_name().to_owned());
-                    Ok((Arc::new(keyring), backend))
+            #[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
+            let unusable = {
+                let keyring = OsKeyringStore::new();
+                match keyring.probe().await {
+                    Ok(()) => {
+                        let backend =
+                            SecretBackend::OsKeyring(OsKeyringStore::platform_name().to_owned());
+                        return Ok((Arc::new(keyring), backend));
+                    }
+                    Err(err) => err.to_string(),
                 }
-                Err(err) => {
-                    tracing::warn!(
-                        error = %err,
-                        "the platform keystore is unusable; falling back to an encrypted file"
-                    );
-                    let store =
-                        EncryptedFileStore::open(&paths.secrets_vault, &fallback_passphrase)
-                            .map_err(|e| ApplicationError::Secrets(e.to_string()))?;
-                    let backend = SecretBackend::EncryptedFile {
-                        path: paths.secrets_vault.display().to_string(),
-                        reason: err.to_string(),
-                    };
-                    let resolved = ResolvedSecretStore::new(
-                        Arc::new(FileSecretStoreAdapter(store)),
-                        backend.clone(),
-                    );
-                    Ok((Arc::new(resolved), backend))
-                }
-            }
+            };
+
+            // Android has no Secret Service, no Credential Manager and no Keychain, and
+            // the `keyring` crate does not build for it. Reaching the encrypted file is
+            // the normal path there, not a failure, so it does not warn.
+            //
+            // The Keystore *is* the right home for these on Android — it is hardware
+            // backed on most devices — but reaching it needs JNI, which is a piece of
+            // work rather than a cfg. `docs/SECURITY.md` says what the file does and
+            // does not protect against in the meantime.
+            #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+            let unusable = "this platform has no keystore this build can reach".to_owned();
+
+            #[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
+            tracing::warn!(
+                reason = %unusable,
+                "the platform keystore is unusable; falling back to an encrypted file"
+            );
+
+            let store = EncryptedFileStore::open(&paths.secrets_vault, &fallback_passphrase)
+                .map_err(|e| ApplicationError::Secrets(e.to_string()))?;
+            let backend = SecretBackend::EncryptedFile {
+                path: paths.secrets_vault.display().to_string(),
+                reason: unusable,
+            };
+            let resolved =
+                ResolvedSecretStore::new(Arc::new(FileSecretStoreAdapter(store)), backend.clone());
+            Ok((Arc::new(resolved), backend))
         }
     }
 }
