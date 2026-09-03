@@ -41,9 +41,11 @@ apk_name = "vds-admin"
 resizeable_activity = true
 
 [package.metadata.android.sdk]
-# 24 is Android 7.0. Below that the Slint renderer's requirements stop being met, and
-# the population still on it is not worth the compatibility shims.
-min_sdk_version = 24
+# 26 is Android 8.0, and it is not a preference. The Android backend renders through
+# Skia, whose C++ calls `strtof_l` and `strtod_l`; the NDK marks both as introduced in
+# API 26, so a lower minimum fails to compile rather than failing at runtime. That was
+# invisible until the 32-bit ARM build was attempted — arm64 happened to get through.
+min_sdk_version = 26
 target_sdk_version = 34
 compile_sdk_version = 34
 

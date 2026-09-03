@@ -177,6 +177,11 @@ jobs:
       - name: Build
         env:
           ANDROID_NDK_ROOT: ${{ env.ANDROID_HOME }}/ndk/26.3.11579264
+          # Both names, and they must agree. cargo-apk reads ANDROID_NDK_ROOT;
+          # skia-bindings reads ANDROID_NDK and otherwise finds whichever NDK the
+          # runner ships. That mismatch compiled Skia against a 27.3 sysroot with a
+          # 26.3 clang — a combination nobody chose and nobody tests.
+          ANDROID_NDK: ${{ env.ANDROID_HOME }}/ndk/26.3.11579264
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
         run: bash scripts/build-android.sh --release
 

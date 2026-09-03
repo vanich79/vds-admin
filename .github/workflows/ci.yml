@@ -207,7 +207,16 @@ jobs:
       - name: Build the APK
         env:
           ANDROID_NDK_ROOT: ${{ env.ANDROID_HOME }}/ndk/26.3.11579264
-        run: bash scripts/build-android.sh --abi arm64-v8a
+          # Both names, and they must agree. cargo-apk reads ANDROID_NDK_ROOT;
+          # skia-bindings reads ANDROID_NDK and otherwise finds whichever NDK the
+          # runner ships. That mismatch compiled Skia against a 27.3 sysroot with a
+          # 26.3 clang — a combination nobody chose and nobody tests.
+          ANDROID_NDK: ${{ env.ANDROID_HOME }}/ndk/26.3.11579264
+        # Every ABI the release builds, so that "CI is green" means the release will
+        # build. One ABI was cheaper and let a 32-bit compilation failure through to the
+        # release, which is the worst moment to find one: the desktop builds all
+        # succeeded and were thrown away.
+        run: bash scripts/build-android.sh
 
       - uses: actions/upload-artifact@v4
         with:
