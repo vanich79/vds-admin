@@ -74,10 +74,34 @@ rust_target_for() {
     esac
 }
 
-if [ "$BUILD_TYPE" = "release" ] && [ -z "${ANDROID_KEYSTORE:-}" ]; then
-    warn "ANDROID_KEYSTORE is not set, so a release APK could not be signed."
-    warn "Building a debug APK instead — an unsigned release APK cannot be installed."
-    BUILD_TYPE="debug"
+# --- the release signing key -------------------------------------------------------------
+#
+# `cargo-apk` takes the key for a profile from two environment variables named after that
+# profile, and for `--release` those are the ones below. Reading them from `ANDROID_*` and
+# translating here keeps the password out of `Cargo.toml`, which is committed: the other
+# way `cargo-apk` accepts a key is a `[package.metadata.android.signing.release]` table
+# holding `keystore_password` in plain text, next to the code.
+#
+# Until this existed the release build had the outward shape of signing — a secret, a
+# decoded keystore, a path in `ANDROID_KEYSTORE` — and nothing consumed any of it. The
+# guard below then quietly downgraded the build, so every release shipped debug APKs and
+# the logs said so in one line nobody read. The names in the artefacts said so too:
+# `vds-admin-arm64-v8a-debug.apk`.
+if [ "$BUILD_TYPE" = "release" ]; then
+    if [ -z "${ANDROID_KEYSTORE:-}" ]; then
+        warn "ANDROID_KEYSTORE is not set, so a release APK could not be signed."
+        warn "Building a debug APK instead — an unsigned release APK cannot be installed."
+        BUILD_TYPE="debug"
+    elif [ -z "${ANDROID_KEYSTORE_PASSWORD:-}" ]; then
+        # Not a fallback. A key without its password is a mistake in the configuration,
+        # and quietly building something else is how the last release went out wrong.
+        die "ANDROID_KEYSTORE is set but ANDROID_KEYSTORE_PASSWORD is not; both or neither"
+    else
+        [ -f "$ANDROID_KEYSTORE" ] || die "no keystore at $ANDROID_KEYSTORE"
+        export CARGO_APK_RELEASE_KEYSTORE="$ANDROID_KEYSTORE"
+        export CARGO_APK_RELEASE_KEYSTORE_PASSWORD="$ANDROID_KEYSTORE_PASSWORD"
+        say "Signing with the release key at $ANDROID_KEYSTORE"
+    fi
 fi
 
 # --- the debug signing key ------------------------------------------------------------

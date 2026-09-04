@@ -201,17 +201,31 @@ scripts/build-android.sh                     # all four
 
 ```sh
 keytool -genkeypair -v -keystore release.keystore \
-        -alias vds-admin -keyalg RSA -keysize 4096 -validity 10000
+        -alias vds-admin -keyalg RSA -keysize 4096 -validity 10000 \
+        -storepass "$PASSWORD" -keypass "$PASSWORD"
 
 export ANDROID_KEYSTORE=$PWD/release.keystore
-export ANDROID_KEYSTORE_PASSWORD=...
+export ANDROID_KEYSTORE_PASSWORD="$PASSWORD"
 scripts/build-android.sh --release
 ```
+
+Two constraints on that keystore, both from how the signing is driven. `cargo-apk`
+is given a path and one password and nothing else — no alias, no separate key
+password — so the store must hold **exactly one key**, and the key’s password must
+be the **same** as the store’s.
+
+The script translates `ANDROID_KEYSTORE` and `ANDROID_KEYSTORE_PASSWORD` into the
+variables `cargo-apk` actually reads, `CARGO_APK_RELEASE_KEYSTORE` and
+`CARGO_APK_RELEASE_KEYSTORE_PASSWORD`. The alternative `cargo-apk` offers is a
+`[package.metadata.android.signing.release]` table in `Cargo.toml`, which would put
+the password in a committed file, so it is not used.
 
 Keep the keystore. An Android app can only be updated by a build signed with the same key;
 lose it and the only way forward is a new package name and every user reinstalling.
 
-Without a key the script builds a debug APK and says so.
+Without a key the script builds a debug APK and says so — but the reliable tell is
+the file name, which ends in `-debug`. The warning is one line in a log fourteen
+minutes long, and a release went out carrying debug APKs because nobody read it.
 
 ### 5.5 NDK and Rust versions
 
