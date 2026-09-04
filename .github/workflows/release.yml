@@ -94,6 +94,9 @@ jobs:
         with:
           name: desktop-${{ matrix.os }}
           path: ${{ matrix.artefacts }}/*
+          # A hand-off to the publish job, nothing more: once the release carries
+          # these files the copy in the artifact store is dead weight.
+          retention-days: 1
           if-no-files-found: error
 
   # --- agent, one job per architecture ---------------------------------------------------
@@ -130,6 +133,7 @@ jobs:
         with:
           name: agent-${{ matrix.short }}
           path: dist/agent/vds-agent-${{ matrix.target }}.tar.gz
+          retention-days: 1
           if-no-files-found: error
 
   # --- Android ---------------------------------------------------------------------------
@@ -207,6 +211,7 @@ jobs:
         with:
           name: android
           path: dist/android/*.apk
+          retention-days: 1
           if-no-files-found: error
 
   # --- collect, checksum and publish --------------------------------------------------------

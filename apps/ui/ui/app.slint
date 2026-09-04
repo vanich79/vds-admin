@@ -42,10 +42,19 @@ component NavItem inherits Rectangle {
         spacing: Theme.space-sm;
         alignment: root.compact ? center : start;
 
-        NavIcon {
-            kind: root.icon;
-            size: root.compact ? 20px : 17px;
-            tint: root.active ? Theme.accent : Theme.text-muted;
+        // Centred by a wrapper, not by the row. The glyph this replaced was a `Text`,
+        // which stretches to the row and centred itself; a drawn icon has a fixed size
+        // and the layout puts it at the top instead. That difference is what knocked the
+        // sidebar icons out of line with their labels on the desktop.
+        VerticalLayout {
+            alignment: center;
+            horizontal-stretch: 0;
+
+            NavIcon {
+                kind: root.icon;
+                size: root.compact ? 20px : 17px;
+                tint: root.active ? Theme.accent : Theme.text-muted;
+            }
         }
         if !root.compact: Text {
             text: root.label;

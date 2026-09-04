@@ -169,6 +169,10 @@ jobs:
         with:
           name: linux-appimage
           path: dist/linux/*
+          # Without this the upload keeps the repository default, which is 90 days, and
+          # every push to main leaves a full set of Linux bundles behind. That is what
+          # filled the account's storage; the APK beside it already had a limit.
+          retention-days: 7
           if-no-files-found: error
           retention-days: 30
 
