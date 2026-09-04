@@ -133,6 +133,16 @@ export component WebsiteGrid inherits VerticalLayout {
 // --- Dashboard ---------------------------------------------------------------------
 
 export component DashboardScreen inherits ScrollView {
+    // Never wider than the window.
+    //
+    // A `ScrollView` gives its content the content's own preferred width, and a `Text`
+    // set to wrap still reports the width it would need on one line. So a single long
+    // sentence made the whole page as wide as that sentence, and every card on it was
+    // cut off at the same vertical line — which is what "nothing is adapted" actually
+    // looked like. Pinning the viewport to the visible width makes the text wrap
+    // instead.
+    viewport-width: root.visible-width;
+
     in property <[StatCard]> infrastructure-cards;
     in property <[StatCard]> traffic-cards;
     in property <ChartData> visitors-chart;
@@ -335,6 +345,9 @@ export component ServersScreen inherits VerticalLayout {
     // shows about one word.
     VerticalLayout {
         spacing: Theme.space-sm;
+        // A nested layout stretches by default, and this one holds a title and a
+        // single-line search box: without this the search box grew to fill the screen.
+        vertical-stretch: 0;
 
         HorizontalLayout {
             spacing: Theme.space-sm;
@@ -363,6 +376,11 @@ export component ServersScreen inherits VerticalLayout {
         if Layout.phone: LineEdit {
             placeholder-text: L.servers_filter;
             text <=> root.filter;
+            // An explicit height because neither `vertical-stretch: 0` on this row nor
+            // on the box itself stopped it growing to fill the screen. Measured on a
+            // 391px window rather than reasoned about, which is why the number is here
+            // and not a theory about who stretches.
+            height: 32px;
         }
     }
 
@@ -374,6 +392,8 @@ export component ServersScreen inherits VerticalLayout {
     }
 
     if root.servers.length > 0: ScrollView {
+        // Vertical only: see the note on the screens above.
+        viewport-width: self.visible-width;
         VerticalLayout {
             spacing: Theme.space-sm;
 
@@ -637,6 +657,8 @@ export component ServerDetailScreen inherits VerticalLayout {
     }
 
     ScrollView {
+        // Vertical only: see the note on the screens above.
+        viewport-width: self.visible-width;
         VerticalLayout {
             spacing: Theme.space-md;
 
@@ -993,6 +1015,8 @@ export component WebsitesScreen inherits VerticalLayout {
     }
 
     if root.websites.length > 0: ScrollView {
+        // Vertical only: see the note on the screens above.
+        viewport-width: self.visible-width;
         VerticalLayout {
             spacing: Theme.space-sm;
 
@@ -1092,6 +1116,8 @@ export component WebsiteDetailScreen inherits VerticalLayout {
     }
 
     ScrollView {
+        // Vertical only: see the note on the screens above.
+        viewport-width: self.visible-width;
         VerticalLayout {
             spacing: Theme.space-md;
 
@@ -1324,6 +1350,8 @@ export component AnalyticsScreen inherits VerticalLayout {
     }
 
     if root.configured: ScrollView {
+        // Vertical only: see the note on the screens above.
+        viewport-width: self.visible-width;
         VerticalLayout {
             spacing: Theme.space-md;
 
@@ -1391,6 +1419,8 @@ export component AlertsScreen inherits VerticalLayout {
     }
 
     ScrollView {
+        // Vertical only: see the note on the screens above.
+        viewport-width: self.visible-width;
         VerticalLayout {
             spacing: Theme.space-sm;
 
@@ -1486,6 +1516,16 @@ export component AlertsScreen inherits VerticalLayout {
 // --- Settings ----------------------------------------------------------------------
 
 export component SettingsScreen inherits ScrollView {
+    // Never wider than the window.
+    //
+    // A `ScrollView` gives its content the content's own preferred width, and a `Text`
+    // set to wrap still reports the width it would need on one line. So a single long
+    // sentence made the whole page as wide as that sentence, and every card on it was
+    // cut off at the same vertical line — which is what "nothing is adapted" actually
+    // looked like. Pinning the viewport to the visible width makes the text wrap
+    // instead.
+    viewport-width: root.visible-width;
+
     in property <[string]> themes;
     in property <[string]> languages;
     in property <string> secret-backend;
@@ -2006,6 +2046,8 @@ export component FilesScreen inherits VerticalLayout {
         }
 
         if root.entries.length > 0: ScrollView {
+            // Vertical only: see the note on the screens above.
+            viewport-width: self.visible-width;
             vertical-stretch: 1;
             VerticalLayout {
                 spacing: 1px;

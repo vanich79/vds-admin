@@ -288,9 +288,13 @@ export component AppWindow inherits Window {
     // Keeps the layout rules in one place, driven by the real window width.
     Rectangle {
         width: 0; height: 0;
-        init => { Layout.window-width = root.width; }
+        init => {
+            Layout.window-width = root.width;
+            Layout.window-height = root.height;
+        }
     }
     changed width => { Layout.window-width = root.width; }
+    changed height => { Layout.window-height = root.height; }
     changed dark-theme => {
         Theme.dark = root.dark-theme;
         Palette.color-scheme = root.dark-theme ? ColorScheme.dark : ColorScheme.light;

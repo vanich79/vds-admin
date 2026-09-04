@@ -40,6 +40,9 @@ component Field inherits VerticalLayout {
     in-out property <string> value;
 
     spacing: Theme.space-xs;
+    // A nested layout stretches by default. A single-line field that grows to fill a
+    // dialog is not a field, it is a wall.
+    vertical-stretch: 0;
 
     // A phone dialog is about 310px wide inside its padding. A 124px label leaves the
     // input 170px, which is not enough to see a hostname while typing it — so on a phone
@@ -131,6 +134,7 @@ component Labelled inherits VerticalLayout {
     in property <string> label;
 
     spacing: Theme.space-xs;
+    vertical-stretch: 0;
 
     if Layout.phone: Text {
         text: root.label;
@@ -167,6 +171,10 @@ component DialogFrame inherits Rectangle {
     // Narrow enough to read comfortably, and capped so it does not sprawl on a wide
     // monitor. On a phone it takes what it can get.
     width: min(Layout.window-width - 2 * Layout.page-padding, 520px);
+    // A modal taller than the window has its buttons off the screen, and those buttons
+    // are the only way out of it. Untested on a phone with the keyboard raised, which is
+    // exactly when the window gets short, so the cap is not optional.
+    max-height: Layout.window-height - 2 * Layout.page-padding;
     background: Theme.surface;
     border-radius: Theme.radius;
     border-width: 1px;
@@ -195,12 +203,20 @@ component DialogFrame inherits Rectangle {
         Rectangle { height: 1px; background: Theme.border; }
 
         ScrollView {
+            // Vertical only. The subtitle and the error line both wrap, and a wrapping
+            // text still asks for its full single-line width, which would otherwise make
+            // the form scroll sideways.
+            viewport-width: self.visible-width;
             // A `ScrollView` has no natural height: without a floor it collapses to a
             // single row and the form appears to have one field. `min-height` is what
             // actually makes the fields visible; `max-height` still bounds a long form so
             // it scrolls rather than pushing the buttons off a phone screen, where they
             // are the only way out of the modal.
-            min-height: Layout.phone ? 180px : 300px;
+            // The same floor on a phone as anywhere else. A phone-specific 180px was
+            // tried first, out of caution about the on-screen keyboard, and it showed
+            // three fields with 500px of the screen left empty. The frame's `max-height`
+            // is what guards against a short window now, so the floor need not.
+            min-height: 300px;
             // Tall enough that the SSH form — which now carries a seven-line key field —
             // fits without scrolling on a desktop. A short window still scrolls, which is
             // what the cap is for.

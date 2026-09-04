@@ -79,6 +79,9 @@ export global Theme {
 // as "the app is not adapted at all".
 export global Layout {
     in-out property <length> window-width: 1280px;
+    // Height matters for one thing only: a modal must never be taller than the
+    // window, or its buttons — the only way to dismiss it — end up off-screen.
+    in-out property <length> window-height: 800px;
 
     // Below this, the sidebar becomes bottom navigation and grids collapse to one
     // column. Chosen to be comfortably wider than a phone in landscape.

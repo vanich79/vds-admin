@@ -245,6 +245,7 @@ export component TileGrid inherits VerticalLayout {
     in property <[StatCard]> cards;
 
     spacing: Theme.space-md;
+    vertical-stretch: 0;
 
     for row-index in ceil(root.cards.length / Layout.tile-columns): HorizontalLayout {
         spacing: Theme.space-md;
@@ -535,6 +536,9 @@ export component EmptyState inherits VerticalLayout {
         font-weight: 600;
         color: Theme.text-muted;
         horizontal-alignment: center;
+        // The detail below always wrapped; the title did not, so "No analytics provider
+        // is connected" ran off the side of a phone.
+        wrap: word-wrap;
     }
     Text {
         text: root.detail;
@@ -563,6 +567,9 @@ export component DetailRow inherits VerticalLayout {
     in property <string> value;
 
     spacing: 2px;
+    // A nested layout stretches by default; a row of text should take the height its
+    // text needs and no more.
+    vertical-stretch: 0;
 
     if Layout.phone: Text {
         text: root.label;
@@ -605,6 +612,7 @@ export component FormRow inherits VerticalLayout {
     in property <bool> align-top: false;
 
     spacing: Theme.space-xs;
+    vertical-stretch: 0;
 
     if Layout.phone && root.label != "": Text {
         text: root.label;
