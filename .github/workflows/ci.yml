@@ -8,6 +8,9 @@ on:
     branches: [main, master]
   pull_request:
   workflow_call:
+  # A button on the Actions page. Rebuilding the APK otherwise meant inventing a commit
+  # to push, which puts a lie in the history to work around a missing trigger.
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
