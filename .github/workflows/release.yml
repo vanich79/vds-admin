@@ -229,9 +229,16 @@ jobs:
         with:
           ref: ${{ inputs.tag || github.ref }}
 
+      # Only what the release jobs built. Without a pattern this downloads every
+      # artefact in the run, and the verification stage is a whole CI run: it uploads
+      # `android-debug-apk` and `linux-appimage` of its own. Those went straight into
+      # the release — four debug APKs, nearly two gigabytes, beside the twelve-megabyte
+      # signed ones they were meant to replace. It was invisible until the release APKs
+      # got their own names; before that the two sets overwrote each other file for file.
       - uses: actions/download-artifact@v4
         with:
           path: staging
+          pattern: '{desktop-*,agent-*,android}'
 
       - name: Collect the artefacts
         run: |
