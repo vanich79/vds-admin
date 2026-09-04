@@ -8,8 +8,8 @@ import { ScrollView, LineEdit, TextEdit, ComboBox, CheckBox } from "std-widgets.
 import { Theme, Layout } from "theme.slint";
 import { L } from "strings.slint";
 import {
-    Card, Chart, DetailRow, EmptyState, FlatButton, MeterBar, SegmentedControl, StatTile,
-    StatusBadge
+    Card, Chart, DetailRow, EmptyState, FlatButton, FormRow, MeterBar, SegmentedControl,
+    StatusBadge, TabStrip, TileGrid
 } from "components.slint";
 import {
     AlertRow, ChartData, ContainerRow, EventRow, FileEntry, ProcessRow, ServerDetail,
@@ -149,7 +149,7 @@ export component DashboardScreen inherits ScrollView {
     callback add-server();
 
     VerticalLayout {
-        padding: Theme.space-lg;
+        padding: Layout.page-padding;
         spacing: Theme.space-lg;
 
         if root.is-empty: EmptyState {
@@ -163,23 +163,11 @@ export component DashboardScreen inherits ScrollView {
             spacing: Theme.space-lg;
 
             // Infrastructure at a glance.
-            HorizontalLayout {
-                spacing: Theme.space-md;
-                for card in root.infrastructure-cards: StatTile {
-                    data: card;
-                    horizontal-stretch: 1;
-                }
-            }
+            TileGrid { cards: root.infrastructure-cards; }
 
             // Traffic, only when a provider is configured — an empty traffic row would
             // be indistinguishable from a site with no visitors.
-            if root.has-analytics: HorizontalLayout {
-                spacing: Theme.space-md;
-                for card in root.traffic-cards: StatTile {
-                    data: card;
-                    horizontal-stretch: 1;
-                }
-            }
+            if root.has-analytics: TileGrid { cards: root.traffic-cards; }
 
             // Charts side by side on a wide screen, stacked on a narrow one.
             if !Layout.compact: HorizontalLayout {
@@ -214,10 +202,14 @@ export component DashboardScreen inherits ScrollView {
                         padding-right: Theme.space-sm;
                         spacing: Theme.space-md;
 
+                        // The badge becomes a dot on a phone. The colour carries the
+                        // meaning; the word beside it costs 90px that the server's name
+                        // needs more.
                         StatusBadge {
                             status: server.status;
                             label: server.status-label;
-                            width: 96px;
+                            compact: Layout.phone;
+                            width: Layout.phone ? 14px : 96px;
                         }
                         Text {
                             text: server.name;
@@ -225,7 +217,9 @@ export component DashboardScreen inherits ScrollView {
                             font-weight: 600;
                             color: Theme.text;
                             vertical-alignment: center;
-                            width: 180px;
+                            horizontal-stretch: 1;
+                            min-width: Layout.phone ? 0px : 180px;
+                            max-width: Layout.phone ? 100000px : 180px;
                             overflow: elide;
                         }
                         Text {
@@ -233,6 +227,7 @@ export component DashboardScreen inherits ScrollView {
                             font-size: Theme.text-sm;
                             color: Theme.text-faint;
                             vertical-alignment: center;
+                            horizontal-alignment: right;
                             overflow: elide;
                         }
                     }
@@ -332,29 +327,42 @@ export component ServersScreen inherits VerticalLayout {
     callback add();
     callback refresh(string);
 
-    padding: Theme.space-lg;
+    padding: Layout.page-padding;
     spacing: Theme.space-md;
 
-    HorizontalLayout {
+    // On a phone the search box takes a row of its own. Title, search and button on one
+    // line leaves all three too narrow: the button loses its label and the search box
+    // shows about one word.
+    VerticalLayout {
         spacing: Theme.space-sm;
 
-        Text {
-            text: L.nav_servers;
-            font-size: Theme.text-lg;
-            font-weight: 700;
-            color: Theme.text;
-            vertical-alignment: center;
+        HorizontalLayout {
+            spacing: Theme.space-sm;
+
+            Text {
+                text: L.nav_servers;
+                font-size: Theme.text-lg;
+                font-weight: 700;
+                color: Theme.text;
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+                overflow: elide;
+            }
+            if !Layout.phone: LineEdit {
+                placeholder-text: L.servers_filter;
+                width: Layout.compact ? 160px : 260px;
+                text <=> root.filter;
+            }
+            FlatButton {
+                text: L.servers_add;
+                primary: true;
+                clicked => { root.add(); }
+            }
         }
-        Rectangle { horizontal-stretch: 1; }
-        search := LineEdit {
+
+        if Layout.phone: LineEdit {
             placeholder-text: L.servers_filter;
-            width: Layout.compact ? 160px : 260px;
             text <=> root.filter;
-        }
-        FlatButton {
-            text: L.servers_add;
-            primary: true;
-            clicked => { root.add(); }
         }
     }
 
@@ -374,17 +382,23 @@ export component ServersScreen inherits VerticalLayout {
                 border-radius: Theme.radius;
                 border-width: 1px;
                 border-color: card-touch.has-hover ? Theme.accent : Theme.border;
-                min-height: Layout.compact ? 150px : 84px;
+                min-height: Layout.compact ? 140px : 84px;
 
                 VerticalLayout {
-                    padding: Theme.space-md;
+                    padding: Layout.card-padding;
                     spacing: Theme.space-sm;
 
                     HorizontalLayout {
-                        spacing: Theme.space-md;
+                        spacing: Theme.space-sm;
 
+                        // `min-width`/`max-width` rather than `width`, because a phone
+                        // has to give this column whatever is left after the badge and
+                        // a fixed width cannot know what that is. The two are equal on
+                        // a desktop, which is the same thing a fixed width said.
                         VerticalLayout {
-                            width: Layout.compact ? 140px : 220px;
+                            horizontal-stretch: 1;
+                            min-width: Layout.phone ? 90px : (Layout.compact ? 140px : 220px);
+                            max-width: Layout.phone ? 100000px : (Layout.compact ? 140px : 220px);
                             spacing: 2px;
                             Text {
                                 text: server.name;
@@ -399,15 +413,27 @@ export component ServersScreen inherits VerticalLayout {
                                 color: Theme.text-faint;
                                 overflow: elide;
                             }
+                            // The column that would have carried this is gone on a
+                            // phone, and "when was this last checked" is the first
+                            // question a stale-looking number raises.
+                            if Layout.phone: Text {
+                                text: server.last-check;
+                                font-size: Theme.text-xs;
+                                color: Theme.text-faint;
+                                overflow: elide;
+                            }
                         }
 
                         StatusBadge {
                             status: server.status;
                             label: server.status-label;
-                            width: 92px;
+                            width: Layout.phone ? 84px : 92px;
                         }
 
-                        Rectangle { horizontal-stretch: 1; }
+                        // The spacer exists to push the right-hand columns to the edge.
+                        // Where there are no right-hand columns it would only steal
+                        // width from the name.
+                        Rectangle { horizontal-stretch: Layout.phone ? 0 : 1; }
 
                         if !Layout.compact: VerticalLayout {
                             width: 110px;
@@ -424,7 +450,7 @@ export component ServersScreen inherits VerticalLayout {
                             }
                         }
 
-                        VerticalLayout {
+                        if !Layout.phone: VerticalLayout {
                             width: 110px;
                             alignment: center;
                             Text {
@@ -441,7 +467,7 @@ export component ServersScreen inherits VerticalLayout {
                     }
 
                     HorizontalLayout {
-                        spacing: Theme.space-lg;
+                        spacing: Layout.phone ? Theme.space-sm : Theme.space-lg;
                         MeterBar {
                             label: L.label_cpu;
                             value: server.cpu;
@@ -506,7 +532,7 @@ export component ServerDetailScreen inherits VerticalLayout {
         L.nav_settings
     ];
 
-    padding: Theme.space-lg;
+    padding: Layout.page-padding;
     spacing: Theme.space-md;
 
     HorizontalLayout {
@@ -605,7 +631,7 @@ export component ServerDetailScreen inherits VerticalLayout {
         }
     }
 
-    SegmentedControl {
+    TabStrip {
         options: root.tabs;
         selected <=> root.tab;
     }
@@ -618,13 +644,7 @@ export component ServerDetailScreen inherits VerticalLayout {
             if root.tab == 0: VerticalLayout {
                 spacing: Theme.space-md;
 
-                HorizontalLayout {
-                    spacing: Theme.space-md;
-                    for card in root.server.cards: StatTile {
-                        data: card;
-                        horizontal-stretch: 1;
-                    }
-                }
+                TileGrid { cards: root.server.cards; }
 
                 Card {
                     title: L.sd_system;
@@ -663,16 +683,32 @@ export component ServerDetailScreen inherits VerticalLayout {
                     font-size: Theme.text-sm;
                     color: Theme.text-faint;
                 }
-                for process in root.processes: HorizontalLayout {
-                    spacing: Theme.space-md;
+                // Five columns need about 450px and a phone has 310, so the row becomes
+                // two lines: what is running and what it costs on the first, the
+                // identifying detail on the second. Nothing is dropped — a process table
+                // that hides the owner is one you cannot act on.
+                for process in root.processes: VerticalLayout {
                     padding-top: 3px;
                     padding-bottom: 3px;
+                    spacing: 1px;
 
-                    Text { text: process.pid; font-size: Theme.text-xs; color: Theme.text-faint; width: 60px; }
-                    Text { text: process.user; font-size: Theme.text-xs; color: Theme.text-muted; width: 90px; overflow: elide; }
-                    Text { text: process.command; font-size: Theme.text-sm; color: Theme.text; horizontal-stretch: 1; overflow: elide; }
-                    Text { text: process.cpu; font-size: Theme.text-sm; color: Theme.text-muted; width: 64px; horizontal-alignment: right; }
-                    Text { text: process.memory; font-size: Theme.text-sm; color: Theme.text-muted; width: 64px; horizontal-alignment: right; }
+                    HorizontalLayout {
+                        spacing: Theme.space-md;
+
+                        if !Layout.phone: Text { text: process.pid; font-size: Theme.text-xs; color: Theme.text-faint; width: 60px; }
+                        if !Layout.phone: Text { text: process.user; font-size: Theme.text-xs; color: Theme.text-muted; width: 90px; overflow: elide; }
+                        Text { text: process.command; font-size: Theme.text-sm; color: Theme.text; horizontal-stretch: 1; overflow: elide; }
+                        Text { text: process.cpu; font-size: Theme.text-sm; color: Theme.text-muted; width: 64px; horizontal-alignment: right; }
+                        if !Layout.phone: Text { text: process.memory; font-size: Theme.text-sm; color: Theme.text-muted; width: 64px; horizontal-alignment: right; }
+                    }
+
+                    if Layout.phone: HorizontalLayout {
+                        spacing: Theme.space-sm;
+
+                        Text { text: process.pid; font-size: Theme.text-xs; color: Theme.text-faint; }
+                        Text { text: process.user; font-size: Theme.text-xs; color: Theme.text-muted; horizontal-stretch: 1; overflow: elide; }
+                        Text { text: process.memory; font-size: Theme.text-xs; color: Theme.text-muted; }
+                    }
                 }
             }
 
@@ -689,9 +725,24 @@ export component ServerDetailScreen inherits VerticalLayout {
                         padding-top: 3px;
                         padding-bottom: 3px;
 
-                        StatusBadge { status: service.state; label: service.state-label; width: 100px; }
-                        Text { text: service.name; font-size: Theme.text-sm; color: Theme.text; width: 200px; overflow: elide; }
-                        Text { text: service.description; font-size: Theme.text-xs; color: Theme.text-faint; horizontal-stretch: 1; overflow: elide; }
+                        StatusBadge {
+                            status: service.state;
+                            label: service.state-label;
+                            compact: Layout.phone;
+                            width: Layout.phone ? 14px : 100px;
+                        }
+                        VerticalLayout {
+                            horizontal-stretch: 1;
+                            min-width: Layout.phone ? 0px : 200px;
+                            max-width: Layout.phone ? 100000px : 200px;
+                            spacing: 1px;
+
+                            Text { text: service.name; font-size: Theme.text-sm; color: Theme.text; overflow: elide; }
+                            // Under the name rather than beside it: side by side, each
+                            // would get half of nothing.
+                            if Layout.phone: Text { text: service.description; font-size: Theme.text-xs; color: Theme.text-faint; overflow: elide; }
+                        }
+                        if !Layout.phone: Text { text: service.description; font-size: Theme.text-xs; color: Theme.text-faint; horizontal-stretch: 1; overflow: elide; }
                     }
                 }
             }
@@ -709,21 +760,40 @@ export component ServerDetailScreen inherits VerticalLayout {
                         font-size: Theme.text-sm;
                         color: Theme.text-faint;
                     }
-                    for container in root.containers: HorizontalLayout {
-                        spacing: Theme.space-md;
+                    for container in root.containers: VerticalLayout {
                         padding-top: 4px;
                         padding-bottom: 4px;
+                        spacing: 1px;
 
-                        StatusBadge { status: container.status; label: ""; compact: true; width: 12px; }
-                        VerticalLayout {
-                            width: 180px;
-                            Text { text: container.name; font-size: Theme.text-sm; font-weight: 600; color: Theme.text; overflow: elide; }
-                            Text { text: container.image; font-size: Theme.text-xs; color: Theme.text-faint; overflow: elide; }
+                        HorizontalLayout {
+                            spacing: Theme.space-md;
+
+                            StatusBadge { status: container.status; label: ""; compact: true; width: 12px; }
+                            VerticalLayout {
+                                horizontal-stretch: 1;
+                                min-width: Layout.phone ? 0px : 180px;
+                                max-width: Layout.phone ? 100000px : 180px;
+                                Text { text: container.name; font-size: Theme.text-sm; font-weight: 600; color: Theme.text; overflow: elide; }
+                                Text { text: container.image; font-size: Theme.text-xs; color: Theme.text-faint; overflow: elide; }
+                            }
+                            if !Layout.phone: Text { text: container.status-text; font-size: Theme.text-xs; color: Theme.text-muted; horizontal-stretch: 1; overflow: elide; }
+                            if !Layout.phone: Text { text: container.cpu; font-size: Theme.text-sm; color: Theme.text-muted; width: 64px; horizontal-alignment: right; }
+                            if !Layout.phone: Text { text: container.memory; font-size: Theme.text-sm; color: Theme.text-muted; width: 90px; horizontal-alignment: right; }
+                            if !Layout.phone: Text { text: container.restarts; font-size: Theme.text-xs; color: Theme.text-faint; width: 70px; horizontal-alignment: right; }
                         }
-                        Text { text: container.status-text; font-size: Theme.text-xs; color: Theme.text-muted; horizontal-stretch: 1; overflow: elide; }
-                        Text { text: container.cpu; font-size: Theme.text-sm; color: Theme.text-muted; width: 64px; horizontal-alignment: right; }
-                        Text { text: container.memory; font-size: Theme.text-sm; color: Theme.text-muted; width: 90px; horizontal-alignment: right; }
-                        Text { text: container.restarts; font-size: Theme.text-xs; color: Theme.text-faint; width: 70px; horizontal-alignment: right; }
+
+                        // Six columns do not fit a phone, and a container's numbers are
+                        // the reason to open this tab, so they take a second line rather
+                        // than disappearing.
+                        if Layout.phone: HorizontalLayout {
+                            spacing: Theme.space-sm;
+                            padding-left: 12px + Theme.space-md;
+
+                            Text { text: container.status-text; font-size: Theme.text-xs; color: Theme.text-muted; horizontal-stretch: 1; overflow: elide; }
+                            Text { text: container.cpu; font-size: Theme.text-xs; color: Theme.text-muted; }
+                            Text { text: container.memory; font-size: Theme.text-xs; color: Theme.text-muted; }
+                            Text { text: container.restarts; font-size: Theme.text-xs; color: Theme.text-faint; }
+                        }
                     }
                 }
             }
@@ -890,7 +960,7 @@ export component WebsitesScreen inherits VerticalLayout {
     callback open(string);
     callback add();
 
-    padding: Theme.space-lg;
+    padding: Layout.page-padding;
     spacing: Theme.space-md;
 
     HorizontalLayout {
@@ -994,7 +1064,7 @@ export component WebsiteDetailScreen inherits VerticalLayout {
 
     property <[string]> tabs: [L.tab_overview, L.nav_analytics, L.tab_availability, L.tab_ssl, L.tab_events];
 
-    padding: Theme.space-lg;
+    padding: Layout.page-padding;
     spacing: Theme.space-md;
 
     HorizontalLayout {
@@ -1016,7 +1086,7 @@ export component WebsiteDetailScreen inherits VerticalLayout {
         StatusBadge { status: root.website.status; label: root.website.status-label; }
     }
 
-    SegmentedControl {
+    TabStrip {
         options: root.tabs;
         selected <=> root.tab;
     }
@@ -1029,10 +1099,7 @@ export component WebsiteDetailScreen inherits VerticalLayout {
             if root.tab == 0: VerticalLayout {
                 spacing: Theme.space-md;
 
-                HorizontalLayout {
-                    spacing: Theme.space-md;
-                    for card in root.website.cards: StatTile { data: card; horizontal-stretch: 1; }
-                }
+                TileGrid { cards: root.website.cards; }
 
                 Card {
                     title: L.dash_preview;
@@ -1090,16 +1157,8 @@ export component WebsiteDetailScreen inherits VerticalLayout {
                         ? L.wd_counter_hint
                         : L.err_no_analytics_token;
 
-                    HorizontalLayout {
-                        spacing: Theme.space-md;
-
-                        Text {
-                            text: L.set_counter_id;
-                            font-size: Theme.text-sm;
-                            color: Theme.text-muted;
-                            width: 160px;
-                            vertical-alignment: center;
-                        }
+                    FormRow {
+                        label: L.set_counter_id;
 
                         counter-input := LineEdit {
                             placeholder-text: "54028423";
@@ -1168,8 +1227,8 @@ export component WebsiteDetailScreen inherits VerticalLayout {
                             padding-top: 3px;
                             padding-bottom: 3px;
                             Text { text: page.url; font-size: Theme.text-sm; color: Theme.text; horizontal-stretch: 1; overflow: elide; }
-                            Text { text: page.views; font-size: Theme.text-sm; color: Theme.text-muted; width: 100px; horizontal-alignment: right; }
-                            Text { text: page.visitors; font-size: Theme.text-sm; color: Theme.text-muted; width: 100px; horizontal-alignment: right; }
+                            Text { text: page.views; font-size: Theme.text-sm; color: Theme.text-muted; width: Layout.phone ? 56px : 100px; horizontal-alignment: right; }
+                            Text { text: page.visitors; font-size: Theme.text-sm; color: Theme.text-muted; width: Layout.phone ? 56px : 100px; horizontal-alignment: right; }
                         }
                     }
                 }
@@ -1231,7 +1290,7 @@ export component AnalyticsScreen inherits VerticalLayout {
     callback open-website(string);
     callback configure();
 
-    padding: Theme.space-lg;
+    padding: Layout.page-padding;
     spacing: Theme.space-md;
 
     HorizontalLayout {
@@ -1268,10 +1327,7 @@ export component AnalyticsScreen inherits VerticalLayout {
         VerticalLayout {
             spacing: Theme.space-md;
 
-            HorizontalLayout {
-                spacing: Theme.space-md;
-                for card in root.cards: StatTile { data: card; horizontal-stretch: 1; }
-            }
+            TileGrid { cards: root.cards; }
 
             HorizontalLayout {
                 alignment: start;
@@ -1309,7 +1365,7 @@ export component AlertsScreen inherits VerticalLayout {
 
     property <[string]> tabs: [L.action_open, L.tab_history, L.tab_rules];
 
-    padding: Theme.space-lg;
+    padding: Layout.page-padding;
     spacing: Theme.space-md;
 
     HorizontalLayout {
@@ -1329,7 +1385,7 @@ export component AlertsScreen inherits VerticalLayout {
         }
     }
 
-    SegmentedControl {
+    TabStrip {
         options: root.tabs;
         selected <=> root.tab;
     }
@@ -1356,7 +1412,12 @@ export component AlertsScreen inherits VerticalLayout {
                     padding: Theme.space-md;
                     spacing: Theme.space-md;
 
-                    StatusBadge { status: incident.severity; label: incident.severity-label; width: 96px; }
+                    StatusBadge {
+                        status: incident.severity;
+                        label: incident.severity-label;
+                        compact: Layout.phone;
+                        width: Layout.phone ? 14px : 96px;
+                    }
                     VerticalLayout {
                         horizontal-stretch: 1;
                         spacing: 2px;
@@ -1384,7 +1445,7 @@ export component AlertsScreen inherits VerticalLayout {
                 spacing: Theme.space-md;
                 StatusBadge { status: incident.severity; compact: true; width: 12px; }
                 Text { text: incident.title; font-size: Theme.text-sm; color: Theme.text; horizontal-stretch: 1; overflow: elide; }
-                Text { text: incident.resolved ? L.alerts_resolved : L.alerts_open; font-size: Theme.text-xs; color: Theme.text-faint; width: 70px; }
+                if !Layout.phone: Text { text: incident.resolved ? L.alerts_resolved : L.alerts_open; font-size: Theme.text-xs; color: Theme.text-faint; width: 70px; }
                 Text { text: incident.opened; font-size: Theme.text-xs; color: Theme.text-faint; }
             }
             }
@@ -1400,7 +1461,12 @@ export component AlertsScreen inherits VerticalLayout {
                     padding: Theme.space-md;
                     spacing: Theme.space-md;
 
-                    StatusBadge { status: rule.severity; label: rule.severity-label; width: 96px; }
+                    StatusBadge {
+                        status: rule.severity;
+                        label: rule.severity-label;
+                        compact: Layout.phone;
+                        width: Layout.phone ? 14px : 96px;
+                    }
                     VerticalLayout {
                         horizontal-stretch: 1;
                         Text { text: rule.title; font-size: Theme.text-sm; font-weight: 600; color: Theme.text; overflow: elide; }
@@ -1449,7 +1515,7 @@ export component SettingsScreen inherits ScrollView {
     callback screenshot-policy-changed(int);
 
     VerticalLayout {
-        padding: Theme.space-lg;
+        padding: Layout.page-padding;
         spacing: Theme.space-md;
 
         Text {
@@ -1461,9 +1527,8 @@ export component SettingsScreen inherits ScrollView {
 
         Card {
             title: L.set_appearance;
-            HorizontalLayout {
-                spacing: Theme.space-md;
-                Text { text: L.set_theme; font-size: Theme.text-sm; color: Theme.text-muted; width: 132px; vertical-alignment: center; }
+            FormRow {
+                label: L.set_theme;
                 SegmentedControl {
                     options: root.themes;
                     selected <=> root.theme-index;
@@ -1471,9 +1536,8 @@ export component SettingsScreen inherits ScrollView {
                 }
             }
 
-            HorizontalLayout {
-                spacing: Theme.space-md;
-                Text { text: L.set_language; font-size: Theme.text-sm; color: Theme.text-muted; width: 132px; vertical-alignment: center; }
+            FormRow {
+                label: L.set_language;
                 SegmentedControl {
                     // Each language is named in itself, so it can be recognised without
                     // first understanding the current one.
@@ -1497,9 +1561,8 @@ export component SettingsScreen inherits ScrollView {
                 wrap: word-wrap;
             }
 
-            HorizontalLayout {
-                spacing: Theme.space-md;
-                Text { text: L.set_oauth_token; font-size: Theme.text-sm; color: Theme.text-muted; width: 132px; vertical-alignment: center; }
+            FormRow {
+                label: L.set_oauth_token;
                 LineEdit {
                     placeholder-text: L.set_token_hint;
                     // The token is never echoed back into this field once saved.
@@ -1548,9 +1611,8 @@ export component SettingsScreen inherits ScrollView {
                 text: L.set_play_sound;
                 checked <=> root.notification-sound;
             }
-            HorizontalLayout {
-                spacing: Theme.space-md;
-                Text { text: L.set_webhook_url; font-size: Theme.text-sm; color: Theme.text-muted; width: 132px; vertical-alignment: center; }
+            FormRow {
+                label: L.set_webhook_url;
                 LineEdit {
                     placeholder-text: L.dlg_ph_webhook;
                     text <=> root.webhook-url;
@@ -1578,9 +1640,8 @@ export component SettingsScreen inherits ScrollView {
                 wrap: word-wrap;
             }
 
-            HorizontalLayout {
-                spacing: Theme.space-md;
-                Text { text: L.action_refresh; font-size: Theme.text-sm; color: Theme.text-muted; width: 132px; vertical-alignment: center; }
+            FormRow {
+                label: L.action_refresh;
                 SegmentedControl {
                     options: root.refresh-policies;
                     selected <=> root.screenshot-policy;
@@ -1668,7 +1729,7 @@ export component FilesScreen inherits VerticalLayout {
 
     property <bool> dirty: root.file-text != root.file-saved-text;
 
-    padding: Theme.space-lg;
+    padding: Layout.page-padding;
     spacing: Theme.space-md;
 
     // --- header ---
@@ -1845,6 +1906,25 @@ export component FilesScreen inherits VerticalLayout {
         }
 
         // Where we are, and the way out of it.
+        if Layout.phone: Rectangle {
+            height: 30px;
+            border-radius: Theme.radius-sm;
+            background: Theme.surface-raised;
+            border-width: 1px;
+            border-color: Theme.border;
+            HorizontalLayout {
+                padding-left: Theme.space-sm;
+                padding-right: Theme.space-sm;
+                Text {
+                    text: root.path;
+                    font-size: Theme.text-sm;
+                    color: Theme.text;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+            }
+        }
+
         HorizontalLayout {
             spacing: Theme.space-sm;
 
@@ -1853,7 +1933,7 @@ export component FilesScreen inherits VerticalLayout {
                 enabled: root.path != "/";
                 clicked => { root.confirming = ""; root.navigate(root.path + "/.."); }
             }
-            Rectangle {
+            if !Layout.phone: Rectangle {
                 horizontal-stretch: 1;
                 border-radius: Theme.radius-sm;
                 background: Theme.surface-raised;
@@ -1871,6 +1951,7 @@ export component FilesScreen inherits VerticalLayout {
                     }
                 }
             }
+            if Layout.phone: Rectangle { horizontal-stretch: 1; }
             FlatButton {
                 text: L.files_new_folder;
                 enabled: !root.busy;
@@ -1951,7 +2032,7 @@ export component FilesScreen inherits VerticalLayout {
                         spacing: Theme.space-sm;
 
                         Text {
-                            text: entry.is-directory ? "▶" : (entry.kind == "symlink" ? "↳" : "·");
+                            text: entry.is-directory ? "›" : (entry.kind == "symlink" ? "@" : "·");
                             font-size: Theme.text-sm;
                             color: Theme.text-faint;
                             vertical-alignment: center;
@@ -1993,7 +2074,7 @@ export component FilesScreen inherits VerticalLayout {
                             font-size: Theme.text-xs;
                             color: Theme.text-faint;
                             vertical-alignment: center;
-                            width: 80px;
+                            width: Layout.phone ? 58px : 80px;
                             horizontal-alignment: right;
                         }
 

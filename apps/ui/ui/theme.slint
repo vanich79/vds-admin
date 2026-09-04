@@ -70,11 +70,39 @@ export global Theme {
 //
 // The single place that decides what "narrow" means, so the sidebar, the grid and the
 // card sizes all change at the same moment.
+//
+// There are two thresholds, not one, and the second was learnt the hard way. `compact`
+// was written for a desktop window dragged narrow — around 800px, which is still wide
+// enough for a label beside its field. A phone is half that again: a 1080-pixel screen
+// at the usual density reports about 390px to us. Everything tuned for `compact` alone
+// therefore overflowed on a real device, and because the overflow was horizontal it read
+// as "the app is not adapted at all".
 export global Layout {
     in-out property <length> window-width: 1280px;
 
     // Below this, the sidebar becomes bottom navigation and grids collapse to one
     // column. Chosen to be comfortably wider than a phone in landscape.
     out property <bool> compact: window-width < 820px;
+
+    // Below this there is no room for two things side by side. Labels move above their
+    // fields, secondary table columns disappear, and padding shrinks. 560px is above any
+    // phone held upright and below any tablet, so the switch never catches a device that
+    // had the room after all.
+    out property <bool> phone: window-width < 560px;
+
     out property <int> grid-columns: window-width < 820px ? 1 : (window-width < 1200px ? 2 : 4);
+
+    // Stat tiles are smaller than website cards, so they wrap two-up on a phone rather
+    // than one-up. Four across gives each about 90px, which is narrower than the numbers
+    // inside them.
+    out property <int> tile-columns: window-width < 1200px ? 2 : 4;
+
+    // Screen padding. On a phone every pixel spent on a margin is a pixel a field does
+    // not get, and the fields are what the screen is for.
+    out property <length> page-padding: phone ? Theme.space-sm : Theme.space-lg;
+    out property <length> card-padding: phone ? Theme.space-sm + 2px : Theme.space-md;
+
+    // The width a form label takes when it still sits beside its field. Zero when it
+    // does not, so a row can use this without asking which mode it is in.
+    out property <length> label-width: phone ? 0px : 132px;
 }

@@ -17,6 +17,12 @@
 # `docs/CROSS_COMPILATION.md` has the step-by-step setup, including which NDK version
 # matches which Rust release.
 #
+# ## Signing
+#
+# A debug APK is signed with `~/.android/debug.keystore`, created here if absent. Keeping
+# that file — CI caches it — is what lets a new build install over an old one instead of
+# forcing an uninstall that deletes the user's data.
+#
 # ## Why an unsigned release APK is not produced
 #
 # An unsigned release APK cannot be installed, so producing one is a way of appearing to
@@ -41,7 +47,7 @@ while [ $# -gt 0 ]; do
         --release) BUILD_TYPE="release"; shift ;;
         --abi) SELECTED+=("${2:-}"); shift 2 ;;
         --out) OUT_DIR="${2:-}"; shift 2 ;;
-        -h|--help) sed -n '2,26p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,32p' "$0"; exit 0 ;;
         *) die "unknown option: $1" ;;
     esac
 done
@@ -72,6 +78,37 @@ if [ "$BUILD_TYPE" = "release" ] && [ -z "${ANDROID_KEYSTORE:-}" ]; then
     warn "ANDROID_KEYSTORE is not set, so a release APK could not be signed."
     warn "Building a debug APK instead — an unsigned release APK cannot be installed."
     BUILD_TYPE="debug"
+fi
+
+# --- the debug signing key ------------------------------------------------------------
+#
+# Android refuses to install an update signed by a different key than the version already
+# on the device: the only way through is to uninstall, which takes the database with it.
+# `cargo-apk` creates a debug key when it cannot find one, and a fresh CI runner never
+# has one — so every build signed with a new key, and every install wiped the settings
+# from the last one.
+#
+# Creating it here, at the path Android has used since the SDK's beginning, means the
+# workflow can cache that one file and keep the key stable. The password is `android`:
+# not an oversight, it is the documented constant for debug keystores, and this key can
+# do nothing but sign debug builds of this application.
+DEBUG_KEYSTORE="${ANDROID_DEBUG_KEYSTORE:-$HOME/.android/debug.keystore}"
+if [ "$BUILD_TYPE" = "debug" ] && command -v keytool >/dev/null 2>&1; then
+    mkdir -p "$(dirname "$DEBUG_KEYSTORE")"
+    if [ ! -f "$DEBUG_KEYSTORE" ]; then
+        say "Creating a debug signing key at $DEBUG_KEYSTORE"
+        keytool -genkeypair -keystore "$DEBUG_KEYSTORE" \
+            -storepass android -keypass android \
+            -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=Android Debug,O=Android,C=US" >/dev/null
+    fi
+
+    # The fingerprint, never the key. Two builds install over each other if and only if
+    # this line matches, which is what makes "why will it not update" answerable from a
+    # log rather than by guesswork.
+    say "Debug key fingerprint:"
+    keytool -list -keystore "$DEBUG_KEYSTORE" -storepass android \
+        -alias androiddebugkey 2>/dev/null | grep -i "SHA" || true
 fi
 
 mkdir -p "$OUT_DIR"

@@ -4,7 +4,7 @@ import { Clipboard } from "clipboard.slint";
 import { Palette } from "std-widgets.slint";
 import { Theme, Layout } from "theme.slint";
 import { L } from "strings.slint";
-import { FlatButton, StatusBadge } from "components.slint";
+import { FlatButton, NavIcon, StatusBadge } from "components.slint";
 import { AddServerDialog, AddWebsiteDialog } from "dialogs.slint";
 import {
     AlertsScreen, AnalyticsScreen, DashboardScreen, FilesScreen, ServerDetailScreen, ServersScreen,
@@ -24,7 +24,7 @@ export {
 // One navigation entry.
 component NavItem inherits Rectangle {
     in property <string> label;
-    in property <string> glyph;
+    in property <string> icon;
     in property <bool> active;
     in property <int> badge: 0;
     in property <bool> compact: false;
@@ -42,11 +42,10 @@ component NavItem inherits Rectangle {
         spacing: Theme.space-sm;
         alignment: root.compact ? center : start;
 
-        Text {
-            text: root.glyph;
-            font-size: root.compact ? 17px : 15px;
-            color: root.active ? Theme.accent : Theme.text-muted;
-            vertical-alignment: center;
+        NavIcon {
+            kind: root.icon;
+            size: root.compact ? 20px : 17px;
+            tint: root.active ? Theme.accent : Theme.text-muted;
         }
         if !root.compact: Text {
             text: root.label;
@@ -330,30 +329,30 @@ export component AppWindow inherits Window {
                 }
 
                 NavItem {
-                    label: L.nav_dashboard; glyph: "◧"; active: root.page == 0;
+                    label: L.nav_dashboard; icon: "dashboard"; active: root.page == 0;
                     clicked => { root.page = 0; root.showing-server-detail = false; root.showing-website-detail = false; root.showing-files = false; }
                 }
                 NavItem {
-                    label: L.nav_servers; glyph: "▤"; active: root.page == 1;
+                    label: L.nav_servers; icon: "servers"; active: root.page == 1;
                     clicked => { root.page = 1; root.showing-server-detail = false; root.showing-files = false; }
                 }
                 NavItem {
-                    label: L.nav_websites; glyph: "◈"; active: root.page == 2;
+                    label: L.nav_websites; icon: "websites"; active: root.page == 2;
                     clicked => { root.page = 2; root.showing-website-detail = false; }
                 }
                 NavItem {
-                    label: L.nav_analytics; glyph: "◐"; active: root.page == 3;
+                    label: L.nav_analytics; icon: "analytics"; active: root.page == 3;
                     clicked => { root.page = 3; }
                 }
                 NavItem {
-                    label: L.nav_alerts; glyph: "△"; active: root.page == 4; badge: root.open-alert-count;
+                    label: L.nav_alerts; icon: "alerts"; active: root.page == 4; badge: root.open-alert-count;
                     clicked => { root.page = 4; }
                 }
 
                 Rectangle { vertical-stretch: 1; }
 
                 NavItem {
-                    label: L.nav_settings; glyph: "⚙"; active: root.page == 5;
+                    label: L.nav_settings; icon: "settings"; active: root.page == 5;
                     clicked => { root.page = 5; }
                 }
             }
@@ -539,33 +538,33 @@ export component AppWindow inherits Window {
                     spacing: 2px;
 
                     NavItem {
-                        label: L.nav_home; glyph: "◧"; compact: true; active: root.page == 0;
+                        label: L.nav_home; icon: "dashboard"; compact: true; active: root.page == 0;
                         horizontal-stretch: 1;
                         clicked => { root.page = 0; root.showing-server-detail = false; root.showing-website-detail = false; root.showing-files = false; }
                     }
                     NavItem {
-                        label: L.nav_servers; glyph: "▤"; compact: true; active: root.page == 1;
+                        label: L.nav_servers; icon: "servers"; compact: true; active: root.page == 1;
                         horizontal-stretch: 1;
                         clicked => { root.page = 1; root.showing-server-detail = false; root.showing-files = false; }
                     }
                     NavItem {
-                        label: L.nav_sites_short; glyph: "◈"; compact: true; active: root.page == 2;
+                        label: L.nav_sites_short; icon: "websites"; compact: true; active: root.page == 2;
                         horizontal-stretch: 1;
                         clicked => { root.page = 2; root.showing-website-detail = false; }
                     }
                     NavItem {
-                        label: L.nav_analytics; glyph: "◐"; compact: true; active: root.page == 3;
+                        label: L.nav_analytics; icon: "analytics"; compact: true; active: root.page == 3;
                         horizontal-stretch: 1;
                         clicked => { root.page = 3; }
                     }
                     NavItem {
-                        label: L.nav_alerts; glyph: "△"; compact: true; active: root.page == 4;
+                        label: L.nav_alerts; icon: "alerts"; compact: true; active: root.page == 4;
                         badge: root.open-alert-count;
                         horizontal-stretch: 1;
                         clicked => { root.page = 4; }
                     }
                     NavItem {
-                        label: L.nav_more; glyph: "⚙"; compact: true; active: root.page == 5;
+                        label: L.nav_more; icon: "settings"; compact: true; active: root.page == 5;
                         horizontal-stretch: 1;
                         clicked => { root.page = 5; }
                     }

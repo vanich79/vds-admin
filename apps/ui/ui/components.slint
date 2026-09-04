@@ -1,5 +1,6 @@
 // Reusable pieces. Nothing here knows what a server or a website is.
 
+import { ScrollView } from "std-widgets.slint";
 import { Theme, Layout } from "theme.slint";
 import { L } from "strings.slint";
 import { StatCard, ChartData } from "models.slint";
@@ -29,6 +30,139 @@ export component StatusBadge inherits HorizontalLayout {
     }
 }
 
+// Navigation icons, drawn rather than typed.
+//
+// These used to be characters — ◧ ▤ ◈ ◐ △ ⚙ — which works on a desktop and does not work
+// on a phone: two of the six came out as empty boxes on the test device. A font is not
+// obliged to carry the Geometric Shapes block, what a given Android build ships is the
+// vendor's choice, and there is no way to ask at runtime whether a glyph exists. Shapes
+// have no such dependency, so they cannot go missing.
+export component NavIcon inherits Rectangle {
+    in property <string> kind;
+    in property <color> tint;
+    in property <length> size: 18px;
+
+    width: root.size;
+    height: root.size;
+
+    // Dashboard: four panels.
+    if root.kind == "dashboard": Rectangle {
+        Rectangle {
+            x: 0; y: 0;
+            width: parent.width * 0.42; height: parent.height * 0.42;
+            border-radius: 2px; background: root.tint;
+        }
+        Rectangle {
+            x: parent.width * 0.58; y: 0;
+            width: parent.width * 0.42; height: parent.height * 0.42;
+            border-radius: 2px; background: root.tint;
+        }
+        Rectangle {
+            x: 0; y: parent.height * 0.58;
+            width: parent.width * 0.42; height: parent.height * 0.42;
+            border-radius: 2px; background: root.tint;
+        }
+        Rectangle {
+            x: parent.width * 0.58; y: parent.height * 0.58;
+            width: parent.width * 0.42; height: parent.height * 0.42;
+            border-radius: 2px; background: root.tint;
+        }
+    }
+
+    // Servers: stacked units.
+    if root.kind == "servers": Rectangle {
+        Rectangle {
+            x: 0; y: parent.height * 0.08;
+            width: parent.width; height: parent.height * 0.22;
+            border-radius: 2px; background: root.tint;
+        }
+        Rectangle {
+            x: 0; y: parent.height * 0.39;
+            width: parent.width; height: parent.height * 0.22;
+            border-radius: 2px; background: root.tint;
+        }
+        Rectangle {
+            x: 0; y: parent.height * 0.70;
+            width: parent.width; height: parent.height * 0.22;
+            border-radius: 2px; background: root.tint;
+        }
+    }
+
+    // Websites: a globe.
+    if root.kind == "websites": Rectangle {
+        Rectangle {
+            width: parent.width; height: parent.height;
+            border-radius: parent.width / 2;
+            border-width: 1.6px; border-color: root.tint;
+            background: transparent;
+        }
+        Rectangle {
+            x: parent.width * 0.34; y: 0;
+            width: parent.width * 0.32; height: parent.height;
+            border-radius: parent.width * 0.16;
+            border-width: 1.6px; border-color: root.tint;
+            background: transparent;
+        }
+        Rectangle {
+            x: 0; y: (parent.height - 1.6px) / 2;
+            width: parent.width; height: 1.6px;
+            background: root.tint;
+        }
+    }
+
+    // Analytics: a bar chart.
+    if root.kind == "analytics": Rectangle {
+        Rectangle {
+            x: 0; y: parent.height * 0.45;
+            width: parent.width * 0.24; height: parent.height * 0.55;
+            border-radius: 1px; background: root.tint;
+        }
+        Rectangle {
+            x: parent.width * 0.38; y: parent.height * 0.20;
+            width: parent.width * 0.24; height: parent.height * 0.80;
+            border-radius: 1px; background: root.tint;
+        }
+        Rectangle {
+            x: parent.width * 0.76; y: 0;
+            width: parent.width * 0.24; height: parent.height;
+            border-radius: 1px; background: root.tint;
+        }
+    }
+
+    // Alerts: a warning triangle.
+    if root.kind == "alerts": Path {
+        width: parent.width; height: parent.height;
+        viewbox-width: 24; viewbox-height: 24;
+        commands: "M 12 2 L 23 21 L 1 21 Z";
+        fill: root.tint;
+    }
+
+    // Settings: sliders. A gear needs a path with teeth; two rows with a knob each says
+    // the same thing and survives being drawn 18 pixels wide.
+    if root.kind == "settings": Rectangle {
+        Rectangle {
+            x: 0; y: parent.height * 0.28;
+            width: parent.width; height: 1.8px;
+            background: root.tint;
+        }
+        Rectangle {
+            x: parent.width * 0.58; y: parent.height * 0.28 - 3px;
+            width: 7.6px; height: 7.6px;
+            border-radius: 3.8px; background: root.tint;
+        }
+        Rectangle {
+            x: 0; y: parent.height * 0.70;
+            width: parent.width; height: 1.8px;
+            background: root.tint;
+        }
+        Rectangle {
+            x: parent.width * 0.22; y: parent.height * 0.70 - 3px;
+            width: 7.6px; height: 7.6px;
+            border-radius: 3.8px; background: root.tint;
+        }
+    }
+}
+
 // The standard container. Everything sits in one of these.
 export component Card inherits Rectangle {
     in property <string> title;
@@ -40,7 +174,7 @@ export component Card inherits Rectangle {
     border-color: Theme.border;
 
     VerticalLayout {
-        padding: Theme.space-md;
+        padding: Layout.card-padding;
         spacing: Theme.space-sm;
 
         if root.title != "": VerticalLayout {
@@ -98,6 +232,36 @@ export component StatTile inherits Rectangle {
             font-size: Theme.text-xs;
             color: Theme.text-faint;
             overflow: elide;
+        }
+    }
+}
+
+// Stat tiles, wrapped into rows.
+//
+// Four across is right on a monitor and unreadable on a phone. Slint has no wrapping flow
+// layout, so the rows are laid out by hand — the same approach `WebsiteGrid` takes, for
+// the same reason.
+export component TileGrid inherits VerticalLayout {
+    in property <[StatCard]> cards;
+
+    spacing: Theme.space-md;
+
+    for row-index in ceil(root.cards.length / Layout.tile-columns): HorizontalLayout {
+        spacing: Theme.space-md;
+
+        for column in Layout.tile-columns: cell := VerticalLayout {
+            // Named so the `if` below can reach it: Slint has no way to walk up from a
+            // child to its parent's properties.
+            property <int> index: row-index * Layout.tile-columns + column;
+            property <bool> present: self.index < root.cards.length;
+
+            horizontal-stretch: 1;
+
+            // The last row is usually short. An absent cell still takes its share of the
+            // width, so the tiles above it stay in their columns instead of stretching.
+            if cell.present: StatTile {
+                data: root.cards[min(cell.index, max(0, root.cards.length - 1))];
+            }
         }
     }
 }
@@ -317,6 +481,40 @@ export component SegmentedControl inherits HorizontalLayout {
     }
 }
 
+// A row of tabs that stays reachable on a narrow screen.
+//
+// The server detail page has seven tabs. Side by side they need about 420px; a phone has
+// 310. Shrinking them until they fit makes the labels unreadable and the targets too
+// small to hit, so instead the strip scrolls sideways — which is what a phone user
+// expects a tab bar to do.
+export component TabStrip inherits Rectangle {
+    in property <[string]> options;
+    in-out property <int> selected: 0;
+    callback changed(int);
+
+    height: 34px;
+
+    if !Layout.phone: SegmentedControl {
+        options: root.options;
+        selected <=> root.selected;
+        changed(index) => { root.changed(index); }
+    }
+
+    if Layout.phone: ScrollView {
+        // The viewport is as wide as the tabs actually need. Left at its default it
+        // matches the view, the tabs are squeezed into it, and there is nothing to
+        // scroll — the failure then looks exactly like the overflow it was meant to fix.
+        viewport-width: max(self.width, strip.preferred-width);
+        viewport-height: self.height;
+
+        strip := SegmentedControl {
+            options: root.options;
+            selected <=> root.selected;
+            changed(index) => { root.changed(index); }
+        }
+    }
+}
+
 // Shown wherever a list is legitimately empty.
 //
 // A distinct component because "nothing here yet" and "we could not load this" must not
@@ -356,22 +554,75 @@ export component EmptyState inherits VerticalLayout {
 }
 
 // A key/value line, used throughout the detail pages.
-export component DetailRow inherits HorizontalLayout {
+//
+// Two shapes, one component. Side by side where there is room; label above value where
+// there is not — 132px of label out of ~310px of usable phone width leaves the value
+// with less room than the word describing it.
+export component DetailRow inherits VerticalLayout {
     in property <string> label;
     in property <string> value;
 
-    spacing: Theme.space-md;
+    spacing: 2px;
 
-    Text {
+    if Layout.phone: Text {
+        text: root.label;
+        font-size: Theme.text-xs;
+        color: Theme.text-faint;
+    }
+
+    HorizontalLayout {
+        spacing: Theme.space-md;
+
+        if !Layout.phone: Text {
+            text: root.label;
+            font-size: Theme.text-sm;
+            color: Theme.text-faint;
+            width: 132px;
+        }
+        Text {
+            text: root.value;
+            font-size: Theme.text-sm;
+            color: Theme.text;
+            horizontal-stretch: 1;
+            // Wrapping beats eliding on a phone: a hostname or a path cut short is
+            // exactly the value someone came to this row to read.
+            wrap: Layout.phone ? word-wrap : no-wrap;
+            overflow: Layout.phone ? clip : elide;
+        }
+    }
+}
+
+// A form row: a label and whatever control belongs to it.
+//
+// The same rule as `DetailRow`, and the reason both exist as components at all. Every
+// screen used to write this by hand as a `HorizontalLayout` with a hard-coded label
+// width, so making the layout responsive meant editing every screen — and missing one
+// meant a field off the edge of the screen with nothing to hint at it.
+export component FormRow inherits VerticalLayout {
+    in property <string> label;
+    // Where the label sits beside a tall control — a key field, a block of text — it
+    // should align with the top of it rather than float in the middle.
+    in property <bool> align-top: false;
+
+    spacing: Theme.space-xs;
+
+    if Layout.phone && root.label != "": Text {
         text: root.label;
         font-size: Theme.text-sm;
-        color: Theme.text-faint;
-        width: 132px;
+        color: Theme.text-muted;
     }
-    Text {
-        text: root.value;
-        font-size: Theme.text-sm;
-        color: Theme.text;
-        overflow: elide;
+
+    HorizontalLayout {
+        spacing: Theme.space-md;
+
+        if !Layout.phone && root.label != "": Text {
+            text: root.label;
+            font-size: Theme.text-sm;
+            color: Theme.text-muted;
+            width: 132px;
+            vertical-alignment: root.align-top ? top : center;
+        }
+
+        @children
     }
 }

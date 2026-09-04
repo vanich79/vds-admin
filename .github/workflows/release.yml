@@ -152,9 +152,27 @@ jobs:
           java-version: '17'
 
       - uses: android-actions/setup-android@v3
-      - run: sdkmanager --install "ndk;26.3.11579264"
+
+      - name: Install the NDK and the SDK platform
+        # The same three as CI, and for the same reason: the NDK alone is not enough,
+        # because cargo-apk links against a platform and calls the build tools. This job
+        # asked for the NDK only, so a release build could fail on a runner where CI had
+        # passed — the one difference no one would think to look for.
+        run: |
+          sdkmanager --install "ndk;26.3.11579264" \
+                               "platforms;android-34" \
+                               "build-tools;34.0.0"
+
       - uses: Swatinem/rust-cache@v2
       - run: cargo install cargo-apk --locked
+
+      # Shared with CI, by the same key, so an APK from a release installs over one from
+      # a CI run rather than demanding an uninstall that deletes the user's data.
+      - name: Keep the debug signing key
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: android-debug-keystore-v1
 
       - name: Restore the signing keystore
         # Without a keystore the build script produces a debug APK and says so, rather

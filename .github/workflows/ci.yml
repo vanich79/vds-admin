@@ -204,6 +204,17 @@ jobs:
       - name: Install cargo-apk
         run: cargo install cargo-apk --locked
 
+      # The signing key, kept between runs. Without this each build gets a new one, and
+      # Android will not install an APK over a version signed by a different key — the
+      # user has to uninstall first, which deletes their servers, sites and credentials.
+      # A cache rather than a secret because a debug key is not one: it can sign debug
+      # builds of this application and nothing else.
+      - name: Keep the debug signing key
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: android-debug-keystore-v1
+
       - name: Build the APK
         env:
           ANDROID_NDK_ROOT: ${{ env.ANDROID_HOME }}/ndk/26.3.11579264
