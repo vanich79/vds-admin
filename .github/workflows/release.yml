@@ -90,10 +90,15 @@ jobs:
           MACOS_NOTARY_PROFILE: ${{ secrets.MACOS_NOTARY_PROFILE }}
         run: bash scripts/${{ matrix.script }}
 
+      # The `.app` is a directory, and a wildcard walks into it: the last draft carried
+      # a loose `Info.plist` and a bare 41 MB `vds-admin` binary as release assets,
+      # alongside the .dmg that already contains both. Only the installers ship.
       - uses: actions/upload-artifact@v4
         with:
           name: desktop-${{ matrix.os }}
-          path: ${{ matrix.artefacts }}/*
+          path: |
+            ${{ matrix.artefacts }}/*
+            !${{ matrix.artefacts }}/*.app
           # A hand-off to the publish job, nothing more: once the release carries
           # these files the copy in the artifact store is dead weight.
           retention-days: 1
