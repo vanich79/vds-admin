@@ -41,6 +41,12 @@ jobs:
           sudo apt-get install --no-install-recommends -y \
             libfontconfig1-dev libxkbcommon-dev
 
+      # Runs before anything expensive, but note what it cannot do: a workflow file
+      # GitHub refuses to read never starts a run at all, so this one cannot check
+      # itself. It catches the other file, and it catches both before a commit.
+      - name: Check the workflow files
+        run: python scripts/check-workflows.py
+
       - name: Check formatting
         run: cargo fmt --all -- --check
 
@@ -172,12 +178,11 @@ jobs:
         with:
           name: linux-appimage
           path: dist/linux/*
-          # Without this the upload keeps the repository default, which is 90 days, and
-          # every push to main leaves a full set of Linux bundles behind. That is what
-          # filled the account's storage; the APK beside it already had a limit.
-          retention-days: 7
           if-no-files-found: error
-          retention-days: 30
+          # A month of full Linux bundles from every push to main is what filled the
+          # account's storage. A week matches the APK beside it and is long enough to
+          # install from, which is the only reason this artifact exists.
+          retention-days: 7
 
   # --- the Android APK ------------------------------------------------------------------
   android:
